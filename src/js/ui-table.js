@@ -2,6 +2,7 @@ import { $, esc } from './util.js';
 import { state, on, isAdmin, canDelete } from './store.js';
 import { formatTable, parseTable, parseLocalities } from './match.js';
 import * as backend from './backend.js';
+import { ocr } from './ocr.js';
 
 export function renderTable() {
   const admin = isAdmin();
@@ -35,6 +36,18 @@ export function initTable() {
       msg.textContent = `${rows.length} plage(s) enregistrée(s)` + (lines > rows.length ? ` — ${lines - rows.length} ligne(s) non reconnue(s), ignorée(s).` : '.')
         + (backend.isShared() ? ' Partagé avec tous les facteurs.' : '');
     } catch (e) { msg.textContent = 'Échec : ' + (e.message || e); }
+  };
+  $('#tph').onclick = () => $('#tf').click();
+  $('#tf').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    const msg = $('#tmsg'); msg.textContent = 'Lecture du tableau…';
+    try {
+      const im = await createImageBitmap(f), c = document.createElement('canvas');
+      c.width = im.width; c.height = im.height; c.getContext('2d').drawImage(im, 0, 0);
+      const tt = $('#tt'); tt.value += (tt.value ? '\n' : '') + await ocr(c, true);
+      msg.textContent = 'Vérifiez et corrigez le texte, puis Enregistrer.';
+    } catch (err) { msg.textContent = err.message; }
+    e.target.value = '';
   };
   $('#learned').addEventListener('click', async e => {
     const id = e.target.dataset?.del; if (!id) return;
