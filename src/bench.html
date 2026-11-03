@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mesure de l'OCR</title><link rel="stylesheet" href="styles.css"></head>
+<body><header class="top"><b>Mesure de l'OCR</b><a class="link" href="./">← Application</a></header>
+<section class="on">
+<p class="mu">Choisissez des photos de lettres (réelles), puis saisissez la vérité terrain, une ligne par photo, dans l'ordre alphabétique des noms de fichier :
+<i>numéro;rue;code postal;ville;tournée</i>. Les photos ne quittent pas l'appareil.</p>
+<input type="file" id="files" accept="image/*" multiple>
+<textarea id="truth" placeholder="5;rue de l'oublie;5500;Dinant;1"></textarea>
+<label class="chk"><input type="checkbox" id="crop" checked> Recadrer le bloc d'adresse</label>
+<button class="b" id="run">Lancer la mesure</button>
+<div id="sum" class="card" hidden></div><div id="out"></div></section>
+<script type="module">
+import { $, esc } from './js/util.js';
+import { recognize, preprocess } from './js/ocr.js';
+import { parseTruth, scoreLetter, summarize } from './js/metrics.js';
+import { effectiveRanges } from './js/store.js';
+$('#run').onclick = async () => {
+  const files = [...$('#files').files].sort((a, b) => a.name.localeCompare(b.name));
+  const truth = parseTruth($('#truth').value);
+  if (!files.length) return;
+  const items = [], out = $('#out'); out.innerHTML = '';
+  for (const [i, f] of files.entries()) {
+    const im = await createImageBitmap(f), c = document.createElement('canvas');
+    c.width = im.width; c.height = im.height; c.getContext('2d').drawImage(im, 0, 0);
+    const t0 = performance.now(), { text, confidence } = await recognize(c, { mode: 'letter' }), ms = Math.round(performance.now() - t0);
+    const tr = truth[i];
+    let html = `<div class="card"><b>${esc(f.name)}</b> <small>${ms} ms · confiance Tesseract ${Math.round(confidence)}</small><pre style="white-space:pre-wrap">${esc(text)}</pre>`;
+    if (tr) { const s = scoreLetter(text, tr, effectiveRanges()); items.push(s);
+      html += Object.entries(s.ok).map(([k, v]) => `<span class="f ${v ? 'ok' : 'ko'}">${k} ${v ? '✓' : '✗'}</span>`).join(''); }
+    out.insertAdjacentHTML('beforeend', html + '</div>');
+  }
+  if (items.length) { const s = summarize(items), p = v => Math.round(v * 100) + ' %';
+    $('#sum').hidden = false;
+    $('#sum').innerHTML = `<b>${s.n} lettres</b><br>N° ${p(s.num)} · Rue ${p(s.street)} · CP ${p(s.cp)} · Ville ${p(s.city)} · <b>Tournée ${p(s.tournee)}</b><br><small>CER moyen de la rue : ${(s.cerStreet * 100).toFixed(1)} %</small>`; }
+};
+</script></body></html>
