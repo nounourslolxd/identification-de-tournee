@@ -49,3 +49,12 @@ export function setLocalities(list) { state.localities = list; ls.set('localitie
 export function setPending(list) { state.pending = list; ls.set('pending', list); emit('ranges'); }
 export function setHist(list) { state.hist = list.slice(0, 80); ls.set('hist', state.hist); emit('hist'); }
 export function setSession(user, role) { state.user = user; state.role = role; emit('session'); }
+
+export function setOnline(v) { state.online = v; emit('status'); }
+
+/** Mode partagé : pas de données de démonstration, et aucun droit tant que la session n'est pas connue. */
+export function initSharedMode() {
+  if (!ls.get('ranges', null)) { state.ranges = []; state.localities = []; }
+  state.role = 'anon';
+  emit('session');
+}

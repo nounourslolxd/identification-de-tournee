@@ -30,4 +30,30 @@ export async function saveTable(tableRanges, localities) {
 }
 
 export function useRemote(impl) { mode.remote = impl; }
+export const remote = () => mode.remote;
+
+function loadScript(src) {
+  return new Promise((ok, ko) => {
+    if (globalThis.supabase) return ok();
+    const s = document.createElement('script');
+    s.src = src; s.onload = ok; s.onerror = () => ko(new Error('Client Supabase introuvable'));
+    document.head.appendChild(s);
+  });
+}
+
+/** Active le mode partagé si config.js contient une URL et une clé anon. Retourne true si activé. */
+export async function initRemote(config) {
+  if (!config?.supabaseUrl || !config?.supabaseAnonKey) return false;
+  await loadScript(new URL('vendor/supabase.js', document.baseURI).href);
+  const { createRemote } = await import('./remote.js');
+  const client = globalThis.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey, {
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+  });
+  const r = createRemote(client);
+  useRemote(r);
+  const { data } = await client.auth.getSession();
+  await r.connect(data.session);
+  client.auth.onAuthStateChange((event, session) => { if (event !== 'INITIAL_SESSION') r.connect(session); });
+  return true;
+}
 export { effectiveRanges };

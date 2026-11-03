@@ -126,7 +126,7 @@ begin
       as r(cp text, city text, street text, from_n int, to_n int, tournee text)
     on conflict do nothing;
 
-  delete from public.localities;
+  delete from public.localities where true;
   insert into public.localities (cp, city)
     select l.cp, l.city from jsonb_to_recordset(coalesce(p_localities, '[]'::jsonb)) as l(cp text, city text)
     on conflict do nothing;
