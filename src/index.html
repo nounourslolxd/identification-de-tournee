@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2563eb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Tournées">
+<title>Identification de tournée</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <b>Identification de tournée</b>
+  <span id="mode" class="mu"></span>
+  <button id="acct" class="link" hidden>Compte</button>
+</header>
+<nav id="tabs">
+  <button data-t="sc" class="on">Scanner</button>
+  <button data-t="lo">Localité</button>
+  <button data-t="tb">Tableau</button>
+  <button data-t="hi">Historique</button>
+</nav>
+<div id="banner" class="banner" hidden></div>
+
+<main>
+<section id="sc" class="on">
+  <div class="cam">
+    <video id="v" playsinline muted></video>
+    <div class="hud"><span id="st">Caméra éteinte</span><span id="sh"></span></div>
+    <div class="ov" id="ov"></div>
+  </div>
+  <div class="bar"><i id="shb"></i></div>
+  <div class="actions">
+    <button class="b" id="go">Démarrer la caméra</button>
+    <button class="b s" id="snap">Capture manuelle</button>
+  </div>
+  <div class="card"><b>Test sans caméra</b>
+    <div class="row"><input id="man" value="5 rue de l'oubliere 5500 Dinant" aria-label="Adresse de test"><button class="b" id="mb">Tester</button></div>
+  </div>
+  <div id="res"></div>
+</section>
+
+<section id="lo">
+  <input id="q" type="search" placeholder="Ville, village ou code postal" autocomplete="off" aria-label="Recherche de localité">
+  <div id="qr"></div>
+</section>
+
+<section id="tb">
+  <p class="mu">Une ligne par plage : <i>5500 rue de l'oublie de 1 a 5 -- tournée 1</i>.
+    Importez une photo du tableau (OCR), puis corrigez le texte si besoin.</p>
+  <textarea id="tt" aria-label="Tableau des tournées"></textarea>
+  <input type="file" id="tf" accept="image/*" capture="environment" hidden>
+  <div class="actions" id="tadmin">
+    <button class="b" id="tsave">Enregistrer</button>
+    <button class="b s" id="tph">Photo du tableau</button>
+  </div>
+  <div id="tmsg" class="mu" role="status"></div>
+  <h3>Localités</h3>
+  <p class="mu">Une par ligne : <i>5500 Dinant</i></p>
+  <textarea id="tl" class="small" aria-label="Localités"></textarea>
+  <h3>Ajouts appris par les facteurs</h3>
+  <div id="learned"></div>
+</section>
+
+<section id="hi">
+  <label class="chk"><input type="checkbox" id="onlyerr"> Erreurs / doutes seulement</label>
+  <div id="hl"></div>
+  <button class="b s" id="hclr">Vider l'historique</button>
+</section>
+</main>
+
+<dialog id="auth">
+  <form method="dialog" id="authf">
+    <h2>Connexion</h2>
+    <p class="mu">Saisissez votre e-mail : vous recevrez un lien et un code à 6 chiffres.</p>
+    <input id="mail" type="email" inputmode="email" autocomplete="email" placeholder="prenom.nom@exemple.be" required>
+    <button class="b" id="sendlink" type="button">Recevoir le lien</button>
+    <div id="codebox" hidden>
+      <input id="code" inputmode="numeric" autocomplete="one-time-code" placeholder="Code à 6 chiffres" maxlength="8">
+      <button class="b" id="sendcode" type="button">Valider le code</button>
+    </div>
+    <div id="authmsg" class="mu" role="status"></div>
+    <button class="b s" id="authclose" type="button">Plus tard (mode lecture locale)</button>
+  </form>
+</dialog>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
