@@ -1,0 +1,73 @@
+name: Tests et déploiement GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Tests unitaires
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test   # aucune dépendance requise : lanceur de tests intégré à Node
+
+  build:
+    name: Build
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      # Variables (Settings → Secrets and variables → Actions → Variables). La clé anon est publique par conception.
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+        continue-on-error: true   # pas de cache tant que package-lock.json n'est pas commité
+      - name: Installer les dépendances
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      - name: Construire (copie Tesseract + Supabase, génère config.js, versionne le service worker)
+        run: npm run build
+      - name: Vérifier que tout est auto-hébergé
+        run: |
+          for f in vendor/tesseract/tesseract.min.js vendor/tesseract/worker.min.js vendor/lang/fra.traineddata.gz vendor/supabase.js sw.js manifest.webmanifest js/config.js; do
+            test -s "dist/$f" || { echo "::error::dist/$f manquant"; exit 1; }
+          done
+          ls dist/vendor/tesseract | grep -q 'tesseract-core' || { echo "::error::noyau wasm manquant"; exit 1; }
+          if grep -rEq 'service_role' dist/js/config.js; then echo "::error::clé service_role détectée"; exit 1; fi
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: Déployer
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

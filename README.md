@@ -13,12 +13,15 @@ le prototype d'origine est conservé dans [`docs/prototype-v0.1.html`](docs/prot
 ```
 src/                     site statique (copié tel quel dans dist/)
   index.html, styles.css, manifest.webmanifest, sw.js
+  bench.html             mesure de la précision de l'OCR sur de vraies lettres (voir docs/OCR.md)
   js/match.js            logique pure : norm, lev, sim, parseAddr, parseTable, match, recherche localité
   js/ocr.js              prétraitement d'image + Tesseract.js (auto-hébergé)
-  js/scanner.js          caméra, netteté, stabilité, auto-capture
-  js/store.js            cache local + file d'attente hors ligne
-  js/backend.js          Supabase : auth, ranges, temps réel, synchronisation
-  js/app.js              interface
+  js/scanner.js          netteté, stabilité, auto-capture, réarmement ; contrôleur caméra
+  js/store.js            état + cache local (hors ligne)
+  js/backend.js          couche de données : mode local ou partagé
+  js/remote.js           Supabase : comptes, ranges, temps réel, file d'attente hors ligne
+  js/metrics.js          calcul de précision pour bench.html
+  js/ui-*.js, app.js     écrans (scanner, tableau, localité, historique, connexion)
   js/config.example.js   modèle de configuration (config.js est généré au build)
 supabase/schema.sql      tables, rôles, Row Level Security
 scripts/                 vendor.mjs (copie Tesseract/Supabase), build.mjs, serve.mjs
@@ -29,8 +32,8 @@ test/                    tests unitaires (node:test)
 ## Développement local
 
 ```bash
-npm ci
-npm test                 # tests unitaires, aucune dépendance
+npm install              # la 1re fois ; commitez ensuite package-lock.json
+npm test                 # tests unitaires, aucune dépendance à installer
 cp .env.example .env     # puis renseigner SUPABASE_URL et SUPABASE_ANON_KEY
 npm run dev              # build + serveur sur http://localhost:8080
 ```
@@ -51,7 +54,11 @@ La caméra exige HTTPS, sauf sur `localhost`.
    le facteur peut alors saisir le code dans l'application.
 6. **Database → Replication** : vérifier que la table `ranges` est dans la publication `supabase_realtime`
    (déjà fait par `schema.sql`).
-7. Se connecter une première fois dans l'application, puis promouvoir le premier administrateur
+7. **Authentication → Providers → Email** : décocher *Allow new users to sign up* et inviter vos facteurs
+   (*Authentication → Users → Invite user*). Sans cela, **toute personne connaissant l'adresse du site peut créer un compte
+   et lire le tableau** (la clé `anon` est publique). Si vous laissez les inscriptions ouvertes, prévoyez une validation
+   manuelle.
+8. Se connecter une première fois dans l'application, puis promouvoir le premier administrateur
    dans le SQL Editor :
    ```sql
    update public.profiles set role = 'admin' where email = 'vous@exemple.be';
@@ -68,7 +75,9 @@ la clé `anon` est publique par conception, la sécurité repose sur la RLS) :
 | `SUPABASE_ANON_KEY` | clé `anon` `public`                  |
 
 Dépôt → **Settings → Pages → Source : GitHub Actions**.
-Chaque push sur `main` lance les tests puis déploie.
+Chaque push sur `main` lance les tests puis déploie ; les *pull requests* ne lancent que les tests.
+Le build échoue si Tesseract, la langue française ou le client Supabase ne sont pas copiés dans `dist/vendor/`
+ou si une clé `service_role` est détectée.
 
 ## Rôles
 
