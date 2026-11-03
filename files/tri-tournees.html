@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Identification de tournée</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#f6f6f3;--card:#fff;--tx:#1c1c1a;--mu:#6b6b66;--bd:#dcdcd6;--ok:#1d9e55;--wa:#d98a00;--ko:#d93a3a;--ac:#2563eb}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#151514;--card:#222220;--tx:#f0f0ec;--mu:#9a9a94;--bd:#3a3a36;--ac:#6d9bff}}
+html{scroll-padding-top:env(safe-area-inset-top,0px);color-scheme:light dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.4 system-ui,sans-serif;max-width:640px;margin-inline:auto}
+nav{display:flex;position:sticky;top:env(safe-area-inset-top,0px);background:var(--bg);z-index:5;border-bottom:1px solid var(--bd)}
+nav button{flex:1;padding:14px 4px;border:0;background:none;color:var(--mu);font:inherit;font-weight:600;border-bottom:3px solid transparent}
+nav button.on{color:var(--tx);border-color:var(--ac)}
+section{display:none;padding:12px}section.on{display:block}
+.cam{position:relative;background:#000;border-radius:14px;overflow:hidden;aspect-ratio:3/4}
+video{width:100%;height:100%;object-fit:cover}
+.hud{position:absolute;left:0;right:0;top:0;padding:8px;display:flex;justify-content:space-between;font-size:13px;color:#fff;text-shadow:0 1px 3px #000}
+.bar{height:6px;background:#fff4;border-radius:3px;overflow:hidden;margin:4px 0}.bar i{display:block;height:100%;background:var(--ok);width:0}
+.ov{position:absolute;left:8px;right:8px;bottom:8px;background:#000c;color:#fff;border-radius:12px;padding:10px 12px;display:none}
+.ov.on{display:block}
+.ok{color:var(--ok)}.wa{color:var(--wa)}.ko{color:var(--ko)}
+.ov .ok{color:#4ade80}.ov .wa{color:#fbbf24}.ov .ko{color:#ff6b6b}
+.f{display:inline-block;margin:2px 10px 2px 0;font-weight:600}
+.big{font-size:28px;font-weight:800}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:10px;margin:8px 0}
+textarea,input{width:100%;padding:10px;border-radius:8px;border:1px solid var(--bd);background:var(--card);color:var(--tx);font:inherit}
+textarea{min-height:150px}
+button.b{padding:10px 14px;border-radius:8px;border:0;background:var(--ac);color:#fff;font:inherit;font-weight:600;margin:4px 4px 4px 0}
+button.s{background:var(--card);color:var(--tx);border:1px solid var(--bd)}
+.row{display:flex;gap:8px;align-items:center}.row input{flex:1}
+.h{display:flex;gap:10px;align-items:center}.h img{width:56px;height:56px;object-fit:cover;border-radius:6px;background:#888}
+small,.mu{color:var(--mu)}
+</style></head><body>
+<header style="padding:10px 12px 4px"><b>Identification de tournée</b> <small>v0.1</small> <small id="mode"></small></header><nav><button data-t="sc" class="on">Scanner</button><button data-t="lo">Localité</button><button data-t="tb">Tableau</button><button data-t="hi">Historique</button></nav>
+
+<section id="sc" class="on">
+ <div class="cam"><video id="v" playsinline muted></video>
+  <div class="hud"><span id="st">Caméra éteinte</span><span id="sh"></span></div>
+  <div class="ov" id="ov"></div></div>
+ <div class="bar"><i id="shb"></i></div>
+ <button class="b" id="go">Démarrer la caméra</button><button class="b s" id="snap">Capture manuelle</button>
+ <div class="card"><b>Test sans caméra</b><div class="row" style="margin-top:6px"><input id="man" value="5 rue de l'oubliere 5500 Dinant"><button class="b" id="mb">Tester</button></div></div>
+ <div id="res"></div>
+</section>
+
+<section id="tb">
+ <p class="mu">Une ligne par plage : <i>5500 rue de l'oublie de 1 a 5 -- tournée 1</i>. Importez une photo du tableau (OCR), puis corrigez le texte si besoin.</p>
+ <textarea id="tt"></textarea>
+ <input type="file" id="tf" accept="image/*" capture="environment" hidden>
+ <button class="b" id="tsave">Enregistrer</button><button class="b s" id="tph">Photo du tableau</button>
+ <div id="tmsg" class="mu"></div><h3>Localités</h3><p class="mu">Une par ligne : <i>5500 Dinant</i></p><textarea id="tl" style="min-height:90px"></textarea>
+ <h3>Ajouts appris par le facteur</h3><div id="learned"></div>
+</section>
+
+<section id="lo"><input id="q" placeholder="Ville, village ou code postal"><div id="qr"></div></section>
+
+<section id="hi">
+ <label><input type="checkbox" id="onlyerr" style="width:auto"> Erreurs / doutes seulement</label>
+ <div id="hl"></div>
+ <button class="b s" id="hclr">Vider l'historique</button>
+</section>
+
+<script>
+const $=s=>document.querySelector(s);
+const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+const DEF="5500 rue de l'avie de 1 a 16 -- tournée 13\n5100 rue de l'oublie de 1 a 4 -- tournée 5\n5500 rue de l'oublie de 1 a 5 -- tournée 1";
+let tableTxt=store.get('tt',DEF), locTxt=store.get('tl','5500 Dinant\n5100 Dinant'), learned=store.get('learned',[]), hist=store.get('hist',[]), db=null, me='local', admin=true;
+
+/* ---------- texte & correspondance ---------- */
+const norm=s=>s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[’']/g,' ').replace(/[^a-z0-9 ]/g,' ').replace(/\b(de|du|des|la|le|les|l|d)\b/g,' ').replace(/\s+/g,' ').trim();
+function lev(a,b){const m=a.length,n=b.length;let p=Array.from({length:n+1},(_,j)=>j);for(let i=1;i<=m;i++){let c=[i];for(let j=1;j<=n;j++)c[j]=Math.min(p[j]+1,c[j-1]+1,p[j-1]+(a[i-1]===b[j-1]?0:1));p=c}return p[n]}
+const sim=(a,b)=>{a=norm(a);b=norm(b);const L=Math.max(a.length,b.length);return L?1-lev(a,b)/L:0};
+function parseTable(t){const out=[];t.split('\n').forEach(l=>{const m=l.match(/^\s*(\d{4,5})\s+(.+?)\s+(?:de\s+)?(\d+)\s*(?:a|à|-)\s*(\d+)\s*(?:--|—|–|-|:)\s*tourn[ée]e\s*(\w+)/i);if(m)out.push({cp:m[1],street:m[2].trim(),from:+m[3],to:+m[4],tournee:m[5]})});return out}
+const ST='rue|avenue|av|chaussée|chaussee|chemin|place|boulevard|route|impasse|quai|allée|allee|square|clos|sentier|ruelle|rempart';
+function parseAddr(t){
+ const a={num:null,street:'',cp:'',city:'',raw:t.trim()};
+ const cps=[...t.matchAll(/\b(\d{4,5})\s+([A-Za-zÀ-ÿ'’\- ]{2,})/g)];
+ if(cps.length){const c=cps[cps.length-1];a.cp=c[1];a.city=c[2].trim()}
+ let m=t.match(new RegExp('(\\d+)\\s*(?:bte\\s*\\w+)?[,\\s]+((?:'+ST+')\\b[^\\n\\d]*)','i'));
+ if(m){a.num=+m[1];a.street=m[2].trim()}
+ else if(m=t.match(new RegExp('((?:'+ST+')\\b[^\\n\\d]*?)[,\\s]+(\\d+)','i'))){a.street=m[1].trim();a.num=+m[2]}
+ return a}
+function match(a){
+ const all=[...learned.map(e=>({...e,learned:1})),...parseTable(tableTxt)];
+ let best=null;
+ for(const e of all){const s=sim(a.street,e.street),p=a.cp&&a.cp===e.cp?1:0,n=a.num!=null&&a.num>=e.from&&a.num<=e.to?1:0;
+  const score=.5*s+.25*p+.25*n+(e.learned&&n&&s>.8?.01:0);
+  if(!best||score>best.score)best={e,s,p,n,score}}
+ return best}
+const cls=(v,o=.92,w=.7)=>v>=o?'ok':v>=w?'wa':'ko';
+
+/* ---------- affichage résultat ---------- */
+function view(a,r,dark){
+ const found=r&&r.score>=.5;
+ const sc=found?Math.round(Math.min(r.score,1)*100):0;
+ const g=found?cls(r.score,.9,.65):'ko';
+ const F=(l,v,c)=>`<span class="f ${c}">${l} : ${v||'?'}</span>`;
+ return `<div>${F('N°',a.num,found&&r.n?'ok':'ko')}${F('Rue',a.street,found?cls(r.s):'ko')}${F('CP',a.cp,found&&r.p?'ok':'ko')}${F('Ville',a.city,a.city?'ok':'ko')}</div>
+ <div class="big ${g}">${found?'Tournée '+r.e.tournee:'Introuvable'} <small class="${g}">· confiance ${sc}%</small></div>
+ ${found&&r.s<.92?`<small>Rue proche trouvée : « ${r.e.street} »</small>`:''}`}
+function learnForm(id){return `<div class="row" style="margin-top:6px"><input placeholder="Bonne tournée ?" data-l="${id}"><button class="b s" data-learn="${id}">Apprendre</button></div>`}
+
+/* ---------- traitement d'une lettre ---------- */
+function process(text,thumb){
+ const a=parseAddr(text),r=match(a);
+ const found=r&&r.score>=.5,score=found?Math.min(r.score,1):0;
+ const it={id:Date.now(),t:new Date().toLocaleTimeString('fr-BE'),a,tournee:found?r.e.tournee:null,score,thumb,raw:text};
+ hist.unshift(it);hist=hist.slice(0,80);store.set('hist',hist);
+ const html=view(a,r);$('#ov').innerHTML=html;$('#ov').classList.add('on');
+ $('#res').innerHTML=`<div class="card">${html.replace(/class="f /g,'class="f ')}${(!found||r.score<.9)?learnForm(it.id):''}</div>`;
+ renderHist();return it}
+
+/* ---------- OCR ---------- */
+let smp;
+const P_LET="Voici la photo d'une lettre. Recopie uniquement l'adresse du destinataire, une ligne par ligne d'adresse (numéro et rue, puis code postal et localité), sans commentaire. Si illisible, réponds ILLISIBLE.";
+const P_TAB="Voici la photo d'un tableau de tournées postales. Transcris-le, une ligne par plage, strictement au format : CODEPOSTAL rue de X à Y -- tournée N. Sans commentaire.";
+async function ocr(canvas,tab){
+ try{smp=smp||await claude.use('sample');
+  if(smp){const blob=await new Promise(r=>canvas.toBlob(r,'image/jpeg',.85));
+   const r=await smp(tab?P_TAB:P_LET,{images:[blob],modelTier:'quick',cache:false});
+   if(!/ILLISIBLE/.test(r.text))return r.text}}catch(e){}
+ return ocrLocal(canvas)}
+async function ocrLocal(canvas){
+ if('TextDetector' in window){try{const d=new TextDetector();const b=await d.detect(canvas);if(b.length)return b.map(x=>x.rawValue).join('\n')}catch(e){}}
+ try{
+  if(!window.Tesseract){await new Promise((ok,ko)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';s.onload=ok;s.onerror=ko;document.head.appendChild(s)})}
+  const r=await Tesseract.recognize(canvas,'fra');return r.data.text}
+ catch(e){throw new Error("Lecture impossible : autorisez l'IA dans les permissions de la page, ou utilisez le champ de test.")}}
+
+/* ---------- caméra, netteté, auto-capture ---------- */
+const v=$('#v'),gc=document.createElement('canvas'),gx=gc.getContext('2d',{willReadFrequently:true});
+gc.width=320;gc.height=240;
+let stream,timer,prev=null,stable=0,locked=false,busy=false;
+const SHARP=45,MOVE=10;
+$('#go').onclick=async()=>{
+ if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;clearInterval(timer);v.srcObject=null;$('#go').textContent='Démarrer la caméra';$('#st').textContent='Caméra éteinte';return}
+ try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1920}},audio:false});
+  v.srcObject=stream;await v.play();$('#go').textContent='Arrêter';$('#st').textContent='Présentez une lettre';timer=setInterval(tick,350)}
+ catch(e){$('#st').textContent='Caméra refusée ou indisponible'}};
+function tick(){
+ if(busy||!v.videoWidth)return;
+ gx.drawImage(v,0,0,320,240);const d=gx.getImageData(0,0,320,240).data,g=new Float32Array(320*240);
+ for(let i=0;i<g.length;i++)g[i]=.3*d[i*4]+.59*d[i*4+1]+.11*d[i*4+2];
+ let s=0,s2=0,n=0;
+ for(let y=1;y<239;y++)for(let x=1;x<319;x++){const i=y*320+x,l=4*g[i]-g[i-1]-g[i+1]-g[i-320]-g[i+320];s+=l;s2+=l*l;n++}
+ const sharp=s2/n-(s/n)**2/1,sh=Math.sqrt(Math.max(sharp,0));
+ let diff=0;if(prev){for(let i=0;i<g.length;i+=7)diff+=Math.abs(g[i]-prev[i]);diff/=g.length/7}
+ prev=g;
+ $('#sh').textContent='Netteté '+Math.round(sh);$('#shb').style.width=Math.min(100,sh/SHARP*60)+'%';
+ if(locked){if(diff>MOVE){locked=false;stable=0;$('#st').textContent='Nouvelle lettre…'}return}
+ if(sh>=SHARP&&diff<MOVE/2){stable++;$('#st').textContent='Stable '+stable+'/3'}else{stable=0;$('#st').textContent=sh<SHARP?'Image floue':'Ne bougez pas'}
+ if(stable>=3){stable=0;capture()}}
+async function capture(){
+ if(busy||!v.videoWidth)return;busy=true;$('#st').textContent='Lecture…';
+ const c=document.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;c.getContext('2d').drawImage(v,0,0);
+ const t=document.createElement('canvas');t.width=160;t.height=Math.round(160*c.height/c.width);t.getContext('2d').drawImage(c,0,0,t.width,t.height);
+ try{const txt=await ocr(c);process(txt,t.toDataURL('image/jpeg',.5));locked=true;$('#st').textContent='Lu ✓ — retirez la lettre'}
+ catch(e){$('#st').textContent=e.message;locked=true}
+ busy=false}
+$('#snap').onclick=capture;
+$('#mb').onclick=()=>process($('#man').value,'');
+
+/* ---------- apprentissage ---------- */
+document.addEventListener('click',e=>{
+ const id=e.target.dataset.learn;if(!id)return;
+ const val=document.querySelector(`[data-l="${id}"]`).value.trim();if(!val)return;
+ const it=hist.find(h=>h.id==id);if(!it||it.a.num==null)return;
+ addLearned({cp:it.a.cp,city:it.a.city,street:it.a.street,from:it.a.num,to:it.a.num,tournee:val});
+ it.tournee=val;it.score=1;it.fixed=1;store.set('hist',hist);
+ renderHist();renderLearned();$('#res').innerHTML=`<div class="card ok">Appris : n°${it.a.num} ${it.a.street} → tournée ${val}</div>`});
+
+/* ---------- historique / tableau ---------- */
+function renderHist(){
+ const only=$('#onlyerr').checked;
+ $('#hl').innerHTML=hist.filter(h=>!only||h.score<.9).map(h=>`<div class="card"><div class="h">${h.thumb?`<img src="${h.thumb}">`:'<img>'}<div style="flex:1"><b>${h.a.num??'?'} ${h.a.street||'(rue non lue)'}</b><br><small>${h.a.cp} ${h.a.city} · ${h.t}</small></div><div style="text-align:right"><b class="${cls(h.score,.9,.65)}">${h.tournee?'T'+h.tournee:'—'}</b><br><small>${Math.round(h.score*100)}%${h.fixed?' ✎':''}</small></div></div>${h.score<.9?learnForm(h.id):''}</div>`).join('')||'<p class="mu">Aucune lettre.</p>'}
+function renderLearned(){$('#learned').innerHTML=learned.map((l,i)=>`<div class="card">${l.cp} ${l.street} n°${l.from} → T${l.tournee} ${admin?`<button class="b s" data-del="${i}">×</button>`:''}</div>`).join('')||'<p class="mu">Rien pour l\'instant.</p>'}
+document.addEventListener('click',e=>{if(e.target.dataset.del!=null)delLearned(+e.target.dataset.del)});
+$('#onlyerr').onchange=renderHist;
+$('#hclr').onclick=()=>{hist=[];store.set('hist',hist);renderHist()};
+$('#tt').value=tableTxt;$('#tl').value=locTxt;
+
+$('#tph').onclick=()=>$('#tf').click();
+$('#tf').onchange=async e=>{const f=e.target.files[0];if(!f)return;$('#tmsg').textContent='Lecture du tableau…';
+ try{const im=await createImageBitmap(f),c=document.createElement('canvas');c.width=im.width;c.height=im.height;c.getContext('2d').drawImage(im,0,0);
+  $('#tt').value+=($('#tt').value?'\n':'')+await ocr(c,1);$('#tmsg').textContent='Vérifiez le texte, puis Enregistrer.'}catch(err){$('#tmsg').textContent=err.message}};
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('nav button,section').forEach(x=>x.classList.remove('on'));b.classList.add('on');$('#'+b.dataset.t).classList.add('on')});
+renderHist();renderLearned();
+
+/* ---------- base partagée ---------- */
+const cfgSave=()=>{store.set('tt',tableTxt);store.set('tl',locTxt);store.set('learned',learned)};
+async function addLearned(e){
+ e.ts=Date.now();
+ if(db){try{const r=await db.collection('learned').add({...e,by:me});return}catch(x){$('#mode').textContent='⚠ écriture refusée, enregistré en local'}}
+ learned.push(e);cfgSave();renderLearned();renderSearch()}
+async function delLearned(i){const l=learned[i];if(!l)return;
+ if(db&&l.id){try{await db.doc('learned/'+l.id).delete();return}catch(x){}}
+ learned.splice(i,1);cfgSave();renderLearned()}
+async function saveTable(){
+ tableTxt=$('#tt').value;locTxt=$('#tl').value;cfgSave();
+ let m=parseTable(tableTxt).length+' plages reconnues.';
+ if(db){try{await db.doc('config/table').set({text:tableTxt,loc:locTxt});m+=' Partagé avec tous les facteurs.'}catch(x){m+=' Partage refusé (réservé aux administrateurs).'}}
+ $('#tmsg').textContent=m;renderSearch()}
+$('#tsave').onclick=saveTable;
+
+/* ---------- recherche par localité ---------- */
+function localities(){
+ const m=new Map(),add=(cp,c)=>{if(!cp||!c)return;if(!m.has(cp))m.set(cp,new Set());m.get(cp).add(c.trim())};
+ locTxt.split('\n').forEach(l=>{const x=l.match(/^\s*(\d{4,5})\s+(.+)$/);if(x)add(x[1],x[2])});
+ learned.forEach(l=>add(l.cp,l.city));hist.forEach(h=>add(h.a.cp,h.a.city));return m}
+function renderSearch(){
+ const q=$('#q').value.trim(),out=$('#qr');
+ if(!q){out.innerHTML='<p class="mu">Tapez un nom de localité ou un code postal.</p>';return}
+ const cps=new Set(),nq=norm(q);
+ localities().forEach((names,cp)=>{if(/^\d+$/.test(q)?cp.startsWith(q):[...names].some(n=>(nq&&norm(n).includes(nq))||sim(n,q)>=.8))cps.add(cp)});
+ const all=[...learned,...parseTable(tableTxt)].filter(e=>cps.has(e.cp));
+ if(!all.length){out.innerHTML='<p class="mu">Aucune tournée trouvée pour cette localité.</p>';return}
+ const by={};all.forEach(e=>{((by[e.tournee]??={})[e.cp+' '+e.street]??=[]).push([e.from,e.to])});
+ out.innerHTML=Object.keys(by).sort((a,b)=>a.localeCompare(b,'fr',{numeric:true})).map(t=>`<div class="card"><b class="big">Tournée ${t}</b>`+Object.entries(by[t]).map(([k,r])=>`<div>${k} <small>n° ${r.map(x=>x[0]===x[1]?x[0]:x[0]+'–'+x[1]).join(', ')}</small></div>`).join('')+'</div>').join('')}
+$('#q').oninput=renderSearch;renderSearch();
+
+(async()=>{
+ try{
+  const d=await claude.use('db'),u=await claude.use('user');
+  if(u){admin=u.canEdit();try{me=await u.id()}catch(e){}}
+  if(!d)throw 0;db=d;
+  db.doc('config/table').onSnapshot(s=>{if(s.exists){const x=s.data();tableTxt=x.text||tableTxt;locTxt=x.loc||locTxt;$('#tt').value=tableTxt;$('#tl').value=locTxt;cfgSave();renderSearch()}});
+  db.collection('learned').onSnapshot(s=>{learned=s.docs.map(x=>({...x.data(),id:x.id}));store.set('learned',learned);renderLearned();renderSearch()});
+  $('#mode').textContent='● base partagée';
+ }catch(e){$('#mode').textContent='○ mode local (non partagé)'}
+ if(!admin){$('#tsave').style.display='none';$('#tph').style.display='none';$('#tt').readOnly=$('#tl').readOnly=true}
+ renderLearned()})();
+</script></body></html>
