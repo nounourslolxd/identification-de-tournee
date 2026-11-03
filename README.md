@@ -1,0 +1,100 @@
+# Identification de tournée
+
+Un facteur scanne une lettre avec son téléphone ; l'application lit l'adresse (OCR), la compare à la
+base de plages d'adresses par tournée et affiche la tournée avec un score de confiance.
+Tous les facteurs partagent et enrichissent la même base.
+
+Application web installable (PWA), hébergée sur **GitHub Pages**, base partagée sur **Supabase**.
+Le cahier des charges est dans [`docs/CAHIER_DES_CHARGES.md`](docs/CAHIER_DES_CHARGES.md) ;
+le prototype d'origine est conservé dans [`docs/prototype-v0.1.html`](docs/prototype-v0.1.html).
+
+## Structure
+
+```
+src/                     site statique (copié tel quel dans dist/)
+  index.html, styles.css, manifest.webmanifest, sw.js
+  js/match.js            logique pure : norm, lev, sim, parseAddr, parseTable, match, recherche localité
+  js/ocr.js              prétraitement d'image + Tesseract.js (auto-hébergé)
+  js/scanner.js          caméra, netteté, stabilité, auto-capture
+  js/store.js            cache local + file d'attente hors ligne
+  js/backend.js          Supabase : auth, ranges, temps réel, synchronisation
+  js/app.js              interface
+  js/config.example.js   modèle de configuration (config.js est généré au build)
+supabase/schema.sql      tables, rôles, Row Level Security
+scripts/                 vendor.mjs (copie Tesseract/Supabase), build.mjs, serve.mjs
+test/                    tests unitaires (node:test)
+.github/workflows/       CI + déploiement GitHub Pages
+```
+
+## Développement local
+
+```bash
+npm ci
+npm test                 # tests unitaires, aucune dépendance
+cp .env.example .env     # puis renseigner SUPABASE_URL et SUPABASE_ANON_KEY
+npm run dev              # build + serveur sur http://localhost:8080
+```
+
+La caméra exige HTTPS, sauf sur `localhost`.
+
+## 1. Créer le projet Supabase
+
+1. Créer un projet sur <https://supabase.com> (offre gratuite suffisante).
+2. **SQL Editor** → coller et exécuter `supabase/schema.sql`.
+3. **Project Settings → API** : noter l'URL du projet et la clé **`anon` `public`**.
+   N'utilisez **jamais** la clé `service_role` dans ce dépôt.
+4. **Authentication → URL Configuration** :
+   - *Site URL* : `https://<utilisateur>.github.io/<depot>/`
+   - *Redirect URLs* : la même adresse (et `http://localhost:8080/` pour le développement).
+5. **Authentication → Email Templates → Magic Link** : ajouter le code à 6 chiffres dans le message,
+   avec `{{ .Token }}`. Sur iPhone, le lien s'ouvre dans Safari et non dans l'application installée ;
+   le facteur peut alors saisir le code dans l'application.
+6. **Database → Replication** : vérifier que la table `ranges` est dans la publication `supabase_realtime`
+   (déjà fait par `schema.sql`).
+7. Se connecter une première fois dans l'application, puis promouvoir le premier administrateur
+   dans le SQL Editor :
+   ```sql
+   update public.profiles set role = 'admin' where email = 'vous@exemple.be';
+   ```
+
+## 2. Configurer GitHub
+
+Dépôt → **Settings → Secrets and variables → Actions → Variables** (ce ne sont pas des secrets :
+la clé `anon` est publique par conception, la sécurité repose sur la RLS) :
+
+| Variable            | Valeur                               |
+|---------------------|--------------------------------------|
+| `SUPABASE_URL`      | `https://xxxx.supabase.co`           |
+| `SUPABASE_ANON_KEY` | clé `anon` `public`                  |
+
+Dépôt → **Settings → Pages → Source : GitHub Actions**.
+Chaque push sur `main` lance les tests puis déploie.
+
+## Rôles
+
+| Action                                   | Contributeur | Administrateur |
+|------------------------------------------|:-----------:|:--------------:|
+| Lire le tableau et les plages apprises    | ✔ | ✔ |
+| Ajouter une plage apprise (`learned`)     | ✔ | ✔ |
+| Supprimer **ses** ajouts                  | ✔ | ✔ |
+| Modifier / supprimer le tableau de base   | ✘ | ✔ |
+| Supprimer les ajouts des autres           | ✘ | ✔ |
+| Promouvoir un administrateur              | ✘ | via SQL |
+
+Ces règles sont appliquées **côté base** (RLS), pas seulement dans l'interface.
+
+## Vie privée
+
+Les photos de lettres restent sur le téléphone (miniature dans l'historique local uniquement).
+Seule l'adresse lue est envoyée, et seulement lorsque le facteur confirme un apprentissage.
+
+## Hors ligne
+
+Le service worker met en cache l'application, Tesseract et la langue française. Le tableau est mis en cache
+dans le téléphone. Les ajouts faits sans réseau sont mis en file d'attente puis envoyés au retour de la connexion.
+Les opérations d'administration (modifier le tableau) nécessitent le réseau.
+
+## Tests
+
+`npm test` couvre `norm`, `sim`, `parseAddr`, `parseTable`, `match` et la recherche par localité.
+L'OCR n'est pas testable de façon fiable sans vraies lettres : voir « Mesurer l'OCR » dans `docs/OCR.md`.
