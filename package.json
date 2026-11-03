@@ -6,7 +6,7 @@
   "description": "Identification de tournée postale par scan d'adresse (PWA)",
   "engines": { "node": ">=20" },
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test \"test/*.test.js\"",
     "vendor": "node scripts/vendor.mjs",
     "build": "node scripts/vendor.mjs && node scripts/build.mjs",
     "dev": "node scripts/vendor.mjs && node scripts/build.mjs && node scripts/serve.mjs"
