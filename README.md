@@ -16,6 +16,7 @@ src/                     site statique (copié tel quel dans dist/)
   bench.html             mesure de la précision de l'OCR sur de vraies lettres (voir docs/OCR.md)
   js/match.js            logique pure : norm, lev, sim, parseAddr, parseTable, match, recherche localité
   js/ocr.js              prétraitement d'image + Tesseract.js (auto-hébergé)
+  js/reader.js           lecture via le serveur de vision (manuscrit), repli sur Tesseract
   js/scanner.js          netteté, stabilité, auto-capture, réarmement ; contrôleur caméra
   js/store.js            état + cache local (hors ligne)
   js/backend.js          couche de données : mode local ou partagé
@@ -24,6 +25,7 @@ src/                     site statique (copié tel quel dans dist/)
   js/ui-*.js, app.js     écrans (scanner, tableau, localité, historique, connexion)
   js/config.example.js   modèle de configuration (config.js est généré au build)
 supabase/schema.sql      tables, rôles, Row Level Security
+server/                  serveur de lecture auto-hébergé : modèle de vision + bases d'adresses (docs/SERVEUR-LECTURE.md)
 scripts/                 vendor.mjs (copie Tesseract/Supabase), build.mjs, serve.mjs
 test/                    tests unitaires (node:test)
 .github/workflows/       CI + déploiement GitHub Pages
@@ -73,6 +75,7 @@ la clé `anon` est publique par conception, la sécurité repose sur la RLS) :
 |---------------------|--------------------------------------|
 | `SUPABASE_URL`      | `https://xxxx.supabase.co`           |
 | `SUPABASE_ANON_KEY` | clé `anon` `public`                  |
+| `OCR_SERVER_URL`    | `https://ocr.exemple.be` (facultatif : serveur de lecture du manuscrit, voir `docs/SERVEUR-LECTURE.md`) |
 
 Dépôt → **Settings → Pages → Source : GitHub Actions**.
 Chaque push sur `main` lance les tests puis déploie ; les *pull requests* ne lancent que les tests.
@@ -94,8 +97,10 @@ Ces règles sont appliquées **côté base** (RLS), pas seulement dans l'interfa
 
 ## Vie privée
 
-Les photos de lettres restent sur le téléphone (miniature dans l'historique local uniquement).
-Seule l'adresse lue est envoyée, et seulement lorsque le facteur confirme un apprentissage.
+Sans serveur de lecture, les photos de lettres restent sur le téléphone (miniature dans l'historique local uniquement).
+Avec `OCR_SERVER_URL`, la photo part **uniquement vers votre propre serveur**, qui la traite en mémoire sans la conserver
+ni la transmettre à un tiers (voir `docs/SERVEUR-LECTURE.md`).
+Vers Supabase, seule l'adresse lue est envoyée, et seulement lorsque le facteur confirme un apprentissage.
 
 ## Hors ligne
 

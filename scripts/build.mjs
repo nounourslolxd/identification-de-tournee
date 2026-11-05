@@ -27,7 +27,11 @@ if (key.startsWith('eyJ') && JSON.parse(Buffer.from(key.split('.')[1] || '', 'ba
   process.exit(1);
 }
 writeFileSync(join(dist, 'js', 'config.js'),
-  `export const config = ${JSON.stringify({ supabaseUrl: url, supabaseAnonKey: key }, null, 2)};\n`);
+  `export const config = ${JSON.stringify({ supabaseUrl: url, supabaseAnonKey: key, ocrServerUrl: env.OCR_SERVER_URL || '' }, null, 2)};\n`);
+if (env.OCR_SERVER_URL && !/^https:\/\/|^http:\/\/localhost\b/.test(env.OCR_SERVER_URL)) {
+  console.error('✘ OCR_SERVER_URL doit être en HTTPS (le téléphone refuse d\'envoyer vers HTTP depuis une page HTTPS).');
+  process.exit(1);
+}
 if (!url || !key) console.warn('⚠ SUPABASE_URL / SUPABASE_ANON_KEY absents : l\'application fonctionnera en mode local.');
 
 // Service worker : liste de la coquille + version = empreinte du contenu.

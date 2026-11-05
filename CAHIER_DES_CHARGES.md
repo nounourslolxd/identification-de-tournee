@@ -29,7 +29,10 @@ Un facteur scanne une lettre avec son téléphone. L'application lit l'adresse, 
 - Interface en français, utilisable à une main sur téléphone, gros boutons.
 - Fonctionne hors ligne pour la lecture (tableau en cache) ; les ajouts se synchronisent au retour du réseau.
 - Pas de clé secrète dans le dépôt (clé `anon` Supabase seulement, protégée par RLS).
-- Données personnelles : les photos de lettres ne sont pas envoyées au serveur (seulement l'adresse lue, si le facteur confirme).
+- Données personnelles : les photos de lettres ne sont pas envoyées à Supabase (seulement l'adresse lue, si le facteur confirme).
+  Exception voulue : la lecture du **manuscrit** se fait sur un serveur auto-hébergé (modèle de vision open source,
+  corrigé par BeST Address, bpost, OpenStreetMap et le tableau). L'image y est traitée en mémoire, sans être conservée
+  ni transmise à un tiers.
 
 ## Déploiement
 Dépôt GitHub → GitHub Actions → GitHub Pages. Documenter dans le README la création du projet Supabase et les variables à renseigner.

@@ -7,11 +7,13 @@ import { initSearch } from './ui-search.js';
 import { initScan, initLearnHandler, maybePrefetch } from './ui-scan.js';
 import { initHistory } from './ui-history.js';
 import { initAuth, promptIfSignedOut } from './ui-auth.js';
+import { setReaderServer } from './reader.js';
 
 let config = { supabaseUrl: '', supabaseAnonKey: '' };
 try { ({ config } = await import('./config.js')); } catch { /* pas de config.js : mode local */ }
 const shared = !!(config.supabaseUrl && config.supabaseAnonKey);
 if (shared) initSharedMode();
+setReaderServer(config.ocrServerUrl);
 
 document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('#tabs button, main section').forEach(x => x.classList.remove('on'));

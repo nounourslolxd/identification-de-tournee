@@ -8,6 +8,11 @@
 3. **Tesseract.js** (langue `fra`, modèle `best_int`) auto-hébergé dans `vendor/` ; PSM 6 pour une lettre, PSM 4 pour un tableau.
 4. **Analyse** (`parseAddr`) puis **correspondance** (`match`).
 
+Si `OCR_SERVER_URL` est configuré et que le réseau est disponible, les étapes 2 à 4 sont remplacées par le
+**serveur de lecture auto-hébergé** : un modèle de vision lit l'adresse (manuscrite ou imprimée), puis les bases
+BeST, bpost et OSM et le tableau des tournées la corrigent. Voir [`SERVEUR-LECTURE.md`](SERVEUR-LECTURE.md).
+Tesseract reste le repli hors ligne.
+
 ## Mesurer la précision (à faire avant la mise en service)
 Les tests unitaires vérifient le prétraitement sur des images synthétiques, **pas la précision de lecture** :
 elle dépend de vos vraies lettres (enveloppes à fenêtre, écriture manuscrite, éclairage).

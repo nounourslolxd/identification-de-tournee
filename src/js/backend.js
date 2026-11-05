@@ -29,6 +29,12 @@ export async function saveTable(tableRanges, localities) {
   setLocalities(localities);
 }
 
+/** Jeton de session Supabase du facteur connecté (pour le serveur de lecture), ou null. */
+export async function accessToken() {
+  try { return (await mode.remote?.client?.auth.getSession())?.data?.session?.access_token ?? null; }
+  catch { return null; }
+}
+
 export function useRemote(impl) { mode.remote = impl; }
 export const remote = () => mode.remote;
 

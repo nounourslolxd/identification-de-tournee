@@ -1,0 +1,38 @@
+# Serveur de lecture complet sur votre machine : modèle de vision (Ollama) + API + HTTPS (Caddy).
+#   cd server && cp .env.example .env   (puis compléter)
+#   docker compose up -d
+#   docker compose exec ollama ollama pull qwen2.5vl:7b
+services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes: [ollama:/root/.ollama]
+    environment:
+      OLLAMA_KEEP_ALIVE: 24h          # garde le modèle en mémoire entre deux lettres
+    # GPU NVIDIA (fortement conseillé) : nécessite nvidia-container-toolkit. Retirez ce bloc pour le CPU seul.
+    deploy:
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: all, capabilities: [gpu] }]
+
+  api:
+    build: { context: .., dockerfile: server/Dockerfile }
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      VISION_URL: http://ollama:11434/v1
+      GAZETTEER_PATH: /data/gazetteer.json
+    volumes: [./data:/data:ro]
+    depends_on: [ollama]
+
+  caddy:                               # certificat HTTPS automatique (Let's Encrypt) pour ${DOMAIN}
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    command: caddy reverse-proxy --from ${DOMAIN} --to api:8787
+    volumes: [caddy:/data]
+    depends_on: [api]
+
+volumes:
+  ollama:
+  caddy:

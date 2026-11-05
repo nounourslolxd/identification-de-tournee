@@ -10,7 +10,7 @@ const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '
 const port = +process.env.PORT || 8080;
 createServer(async (req, res) => {
   let p = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)).replace(/^(\.\.[/\\])+/, '');
-  if (p.endsWith('/')) p += 'index.html';
+  if (p.endsWith('/') || p.endsWith('\\')) p += 'index.html'; // normalize() donne « \ » sous Windows
   try {
     const data = await readFile(join(dist, p));
     res.writeHead(200, { 'content-type': types[extname(p)] || 'application/octet-stream' });
