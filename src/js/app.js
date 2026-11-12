@@ -1,13 +1,17 @@
 // Point d'entrée : onglets, service worker, modules d'écran, mode partagé (Supabase).
 import { $ } from './util.js';
-import { initSharedMode } from './store.js';
+import { initSharedMode, on } from './store.js';
 import * as backend from './backend.js';
 import { initTable } from './ui-table.js';
-import { initSearch } from './ui-search.js';
+import { initSearch, renderSearch } from './ui-search.js';
 import { initScan, initLearnHandler, maybePrefetch } from './ui-scan.js';
 import { initHistory } from './ui-history.js';
 import { initAuth, promptIfSignedOut } from './ui-auth.js';
 import { setReaderServer } from './reader.js';
+import { loadPostcodes, invalidateIndex } from './postcodes.js';
+
+on('ranges', invalidateIndex);          // avant les écrans : ils relisent l'index dans le même événement
+loadPostcodes().then(renderSearch);
 
 let config = { supabaseUrl: '', supabaseAnonKey: '' };
 try { ({ config } = await import('./config.js')); } catch { /* pas de config.js : mode local */ }
@@ -19,6 +23,7 @@ document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('#tabs button, main section').forEach(x => x.classList.remove('on'));
   b.classList.add('on');
   $('#' + b.dataset.t).classList.add('on');
+  window.scrollTo(0, 0);
 });
 
 initTable();

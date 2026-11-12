@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#2563eb">
+<meta name="theme-color" content="#fafaf9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111110" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Tournées">
@@ -14,78 +15,104 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-scan" viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M7 12h10"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></symbol>
+  <symbol id="i-table" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M4 15h16M10 10v10"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></symbol>
+  <symbol id="i-cam" viewBox="0 0 24 24"><path d="M4 8a2 2 0 0 1 2-2h2l1.5-2h5L16 6h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><circle cx="12" cy="12.5" r="3.5"/></symbol>
+  <symbol id="i-img" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M20 16l-5-5-7 8"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></symbol>
+</svg>
+
 <header class="top">
-  <b>Identification de tournée</b>
-  <span id="mode" class="mu"></span>
-  <button id="acct" class="link" hidden>Compte</button>
+  <h1>Tournées</h1>
+  <span id="mode" class="pill"></span>
+  <button id="acct" class="icon-btn" hidden aria-label="Compte"><svg><use href="#i-user"/></svg></button>
 </header>
-<nav id="tabs">
-  <button data-t="sc" class="on">Scanner</button>
-  <button data-t="lo">Localité</button>
-  <button data-t="tb">Tableau</button>
-  <button data-t="hi">Historique</button>
-</nav>
 <div id="banner" class="banner" hidden></div>
 
 <main>
 <section id="sc" class="on">
-  <div class="cam">
+  <div class="cam" data-state="idle">
     <video id="v" playsinline muted></video>
-    <div class="hud"><span id="st">Caméra éteinte</span><span id="sh"></span></div>
-    <div class="ov" id="ov"></div>
+    <div class="cam-idle"><svg><use href="#i-cam"/></svg></div>
+    <div class="frame" aria-hidden="true"><i></i><i></i><i></i><i></i><b class="scanline"></b></div>
+    <div class="hud">
+      <span class="status" role="status"><i class="dot"></i><span id="st">Caméra éteinte</span><span class="steps" aria-hidden="true"><i></i><i></i><i></i></span></span>
+      <span class="meter" id="meter" title="Netteté" aria-hidden="true"><i id="shb"></i></span>
+      <button class="hud-btn" id="torch" hidden aria-label="Lampe" aria-pressed="false"><svg><use href="#i-bolt"/></svg></button>
+    </div>
+    <div class="ov" id="ov" aria-live="polite"></div>
   </div>
-  <div class="bar"><i id="shb"></i></div>
   <div class="actions">
-    <button class="b" id="go">Démarrer la caméra</button>
-    <button class="b s" id="snap">Capture manuelle</button>
-  </div>
-  <div class="card"><b>Test sans caméra</b>
-    <div class="row"><input id="man" value="5 rue de l'oubliere 5500 Dinant" aria-label="Adresse de test"><button class="b" id="mb">Tester</button></div>
+    <button class="btn primary" id="go">Démarrer la caméra</button>
+    <button class="btn" id="snap" aria-label="Capture manuelle" title="Capture manuelle"><svg><use href="#i-cam"/></svg></button>
+    <button class="btn" id="pick" aria-label="Lire une photo" title="Lire une photo"><svg><use href="#i-img"/></svg></button>
+    <input type="file" id="pf" accept="image/*" hidden>
   </div>
   <div id="res"></div>
+  <details class="fold">
+    <summary>Saisir une adresse à la main</summary>
+    <div class="row"><input id="man" value="5 rue de l'oubliere 5500 Dinant" aria-label="Adresse"><button class="btn primary" id="mb">Chercher</button></div>
+  </details>
 </section>
 
 <section id="lo">
+  <h2>Localités</h2>
   <input id="q" type="search" placeholder="Ville, village ou code postal" autocomplete="off" aria-label="Recherche de localité">
   <div id="qr"></div>
 </section>
 
 <section id="tb">
-  <p class="mu">Une ligne par plage : <i>5500 rue de l'oublie de 1 a 5 -- tournée 1</i>.
-    Importez une photo du tableau (OCR), puis corrigez le texte si besoin.</p>
-  <textarea id="tt" aria-label="Tableau des tournées"></textarea>
+  <h2>Tableau des tournées</h2>
+  <p class="hint">Une ligne par plage, par exemple <code>5500 rue de l'oublie de 1 a 5 -- tournée 1</code></p>
+  <textarea id="tt" aria-label="Tableau des tournées" spellcheck="false"></textarea>
   <input type="file" id="tf" accept="image/*" capture="environment" hidden>
   <div class="actions" id="tadmin">
-    <button class="b" id="tsave">Enregistrer</button>
-    <button class="b s" id="tph">Photo du tableau</button>
+    <button class="btn primary" id="tsave">Enregistrer</button>
+    <button class="btn" id="tph"><svg><use href="#i-img"/></svg> Depuis une photo</button>
   </div>
-  <div id="tmsg" class="mu" role="status"></div>
-  <h3>Localités</h3>
-  <p class="mu">Une par ligne : <i>5500 Dinant</i></p>
-  <textarea id="tl" class="small" aria-label="Localités"></textarea>
-  <h3>Ajouts appris par les facteurs</h3>
-  <div id="learned"></div>
+  <div id="tmsg" class="hint" role="status"></div>
+
+  <h3>Localités desservies</h3>
+  <p class="hint">Une par ligne, par exemple <code>5500 Dinant</code></p>
+  <textarea id="tl" class="small" aria-label="Localités" spellcheck="false"></textarea>
+
+  <h3>Appris par les facteurs</h3>
+  <div id="learned" class="list"></div>
 </section>
 
 <section id="hi">
-  <label class="chk"><input type="checkbox" id="onlyerr"> Erreurs / doutes seulement</label>
-  <div id="hl"></div>
-  <button class="b s" id="hclr">Vider l'historique</button>
+  <div class="head-row">
+    <h2>Historique</h2>
+    <label class="toggle"><input type="checkbox" id="onlyerr"> Doutes seulement</label>
+  </div>
+  <div id="hl" class="list"></div>
+  <button class="btn ghost danger" id="hclr">Vider l'historique</button>
 </section>
 </main>
+
+<nav id="tabs" class="tabbar">
+  <button data-t="sc" class="on"><svg><use href="#i-scan"/></svg><span>Scanner</span></button>
+  <button data-t="lo"><svg><use href="#i-pin"/></svg><span>Localités</span></button>
+  <button data-t="tb"><svg><use href="#i-table"/></svg><span>Tableau</span></button>
+  <button data-t="hi"><svg><use href="#i-clock"/></svg><span>Historique</span></button>
+</nav>
 
 <dialog id="auth">
   <form method="dialog" id="authf">
     <h2>Connexion</h2>
-    <p class="mu">Saisissez votre e-mail : vous recevrez un lien et un code à 6 chiffres.</p>
+    <p class="hint">Vous recevrez un lien et un code à 6 chiffres par e-mail.</p>
     <input id="mail" type="email" inputmode="email" autocomplete="email" placeholder="prenom.nom@exemple.be" required>
-    <button class="b" id="sendlink" type="button">Recevoir le lien</button>
+    <button class="btn primary wide" id="sendlink" type="button">Recevoir le lien</button>
     <div id="codebox" hidden>
       <input id="code" inputmode="numeric" autocomplete="one-time-code" placeholder="Code à 6 chiffres" maxlength="8">
-      <button class="b" id="sendcode" type="button">Valider le code</button>
+      <button class="btn primary wide" id="sendcode" type="button">Valider le code</button>
     </div>
-    <div id="authmsg" class="mu" role="status"></div>
-    <button class="b s" id="authclose" type="button">Plus tard (mode lecture locale)</button>
+    <div id="authmsg" class="hint" role="status"></div>
+    <button class="btn ghost wide" id="authclose" type="button">Plus tard</button>
   </form>
 </dialog>
 

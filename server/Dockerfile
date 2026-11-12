@@ -4,6 +4,7 @@ WORKDIR /app
 # Aucune dépendance npm : seulement le serveur et la logique de correspondance partagée avec l'application.
 COPY package.json ./
 COPY src/js/match.js ./src/js/match.js
+COPY src/data/postcodes.json ./src/data/postcodes.json
 COPY server/*.mjs ./server/
 USER node
 ENV PORT=8787

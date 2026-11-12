@@ -36,7 +36,8 @@ export function frameDiff(a, b, step = 7) {
 
 /**
  * Machine à états pure : alimente-la avec (netteté, mouvement, écart à la référence) à chaque image.
- * Retourne { action: 'capture' | null, status }.
+ * Retourne { action: 'capture' | null, status, state, progress }.
+ * state : 'blur' | 'move' | 'stable' | 'reading' | 'done' | 'new' (pour l'affichage) ; progress : 0–1 avant la capture.
  */
 export function createTracker() {
   let stable = 0, locked = false;
@@ -47,30 +48,30 @@ export function createTracker() {
     reset() { locked = false; stable = 0; },
     step({ sharp, move, fromRef }) {
       if (locked) {
-        if (fromRef > REARM) { locked = false; stable = 0; return { action: null, status: 'Nouvelle lettre…' }; }
-        return { action: null, status: 'Lu ✓ — retirez la lettre' };
+        if (fromRef > REARM) { locked = false; stable = 0; return { action: null, status: 'Nouvelle lettre…', state: 'new', progress: 0 }; }
+        return { action: null, status: 'Lu ✓ — retirez la lettre', state: 'done', progress: 1 };
       }
       if (sharp >= SHARP && move < MOVE / 2) {
         stable++;
-        if (stable >= STABLE_TICKS) { stable = 0; return { action: 'capture', status: 'Lecture…' }; }
-        return { action: null, status: `Stable ${stable}/${STABLE_TICKS}` };
+        if (stable >= STABLE_TICKS) { stable = 0; return { action: 'capture', status: 'Lecture…', state: 'reading', progress: 1 }; }
+        return { action: null, status: 'Ne bougez plus…', state: 'stable', progress: stable / STABLE_TICKS };
       }
       stable = 0;
-      return { action: null, status: sharp < SHARP ? 'Image floue' : 'Ne bougez pas' };
+      return sharp < SHARP ? { action: null, status: 'Image floue', state: 'blur', progress: 0 } : { action: null, status: 'Ne bougez pas', state: 'move', progress: 0 };
     },
   };
 }
 
 /**
  * Contrôleur caméra.
- * opts: { video, onStatus(txt), onSharp(value), onCapture(canvas) → Promise }
+ * opts: { video, onStatus(txt), onSharp(value), onState({ state, progress }), onCapture(canvas) → Promise }
  */
-export function createScanner({ video, onStatus, onSharp, onCapture }) {
+export function createScanner({ video, onStatus, onSharp, onCapture, onState = () => {} }) {
   const gc = document.createElement('canvas');
   gc.width = W; gc.height = H;
   const gx = gc.getContext('2d', { willReadFrequently: true });
   const tracker = createTracker();
-  let stream = null, timer = null, prev = null, ref = null, busy = false;
+  let stream = null, timer = null, prev = null, ref = null, busy = false, wake = null, torch = false;
 
   async function start() {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('Caméra non disponible (HTTPS requis).');
@@ -80,15 +81,26 @@ export function createScanner({ video, onStatus, onSharp, onCapture }) {
     video.srcObject = stream;
     await video.play();
     prev = ref = null; tracker.reset();
-    onStatus('Présentez une lettre');
+    onStatus('Présentez une lettre'); onState({ state: 'search', progress: 0 });
     timer = setInterval(tick, 350);
+    // L'écran reste allumé pendant le tri (si le navigateur le permet).
+    navigator.wakeLock?.request('screen').then(w => { wake = w; }).catch(() => {});
   }
 
   function stop() {
     clearInterval(timer); timer = null;
     stream?.getTracks().forEach(t => t.stop());
-    stream = null; video.srcObject = null; prev = ref = null;
-    onStatus('Caméra éteinte');
+    stream = null; video.srcObject = null; prev = ref = null; torch = false;
+    wake?.release().catch(() => {}); wake = null;
+    onStatus('Caméra éteinte'); onState({ state: 'idle', progress: 0 });
+  }
+
+  /** La lampe du téléphone est-elle pilotable ? (Chrome Android ; pas Safari.) */
+  const track = () => stream?.getVideoTracks()[0];
+  const torchAvailable = () => !!track()?.getCapabilities?.().torch;
+  async function setTorch(on) {
+    try { await track().applyConstraints({ advanced: [{ torch: !!on }] }); torch = !!on; } catch { torch = false; }
+    return torch;
   }
 
   function tick() {
@@ -98,8 +110,8 @@ export function createScanner({ video, onStatus, onSharp, onCapture }) {
     const sharp = sharpness(g), move = frameDiff(g, prev), fromRef = frameDiff(g, ref);
     prev = g;
     onSharp(sharp);
-    const { action, status } = tracker.step({ sharp, move, fromRef });
-    onStatus(status);
+    const { action, status, state, progress } = tracker.step({ sharp, move, fromRef });
+    onStatus(status); onState({ state, progress });
     if (action === 'capture') capture();
   }
 
@@ -107,15 +119,15 @@ export function createScanner({ video, onStatus, onSharp, onCapture }) {
   async function capture() {
     if (busy || !video.videoWidth) return;
     busy = true;
-    onStatus('Lecture…');
+    onStatus('Lecture…'); onState({ state: 'reading', progress: 1 });
     const c = document.createElement('canvas');
     c.width = video.videoWidth; c.height = video.videoHeight;
     c.getContext('2d').drawImage(video, 0, 0);
     try {
       await onCapture(c);
-      onStatus('Lu ✓ — retirez la lettre');
+      onStatus('Lu ✓ — retirez la lettre'); onState({ state: 'done', progress: 1 });
     } catch (e) {
-      onStatus(e.message || 'Lecture impossible');
+      onStatus(e.message || 'Lecture impossible'); onState({ state: 'error', progress: 0 });
     } finally {
       ref = prev;            // image de référence : la lettre actuellement sous la caméra
       tracker.lock();        // on ne relit pas la même lettre ; réarmement quand elle change
@@ -123,5 +135,5 @@ export function createScanner({ video, onStatus, onSharp, onCapture }) {
     }
   }
 
-  return { start, stop, capture, get active() { return !!stream; } };
+  return { start, stop, capture, setTorch, torchAvailable, get torch() { return torch; }, get active() { return !!stream; } };
 }

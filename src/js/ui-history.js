@@ -6,11 +6,13 @@ import { learnForm } from './ui-scan.js';
 export function renderHist() {
   const only = $('#onlyerr').checked;
   const list = state.hist.filter(h => !only || h.score < 0.9);
-  $('#hl').innerHTML = list.map(h => `<div class="card"><div class="h">
+  $('#hl').innerHTML = list.map(h => `<div class="item${h.score < 0.9 ? ' wrap' : ''}">
     ${h.thumb ? `<img src="${esc(h.thumb)}" alt="">` : '<img alt="">'}
-    <div style="flex:1"><b>${esc(h.a.num ?? '?')} ${esc(h.a.street) || '(rue non lue)'}</b><br><small>${esc(h.a.cp)} ${esc(h.a.city)} · ${esc(h.t)}</small></div>
-    <div style="text-align:right"><b class="${clsGlobal(h.score)}">${h.tournee ? 'T' + esc(h.tournee) : '—'}</b><br><small>${Math.round(h.score * 100)}%${h.fixed ? ' ✎' : ''}</small></div></div>
-    ${h.score < 0.9 ? learnForm(h.id) : ''}</div>`).join('') || '<p class="mu">Aucune lettre.</p>';
+    <div class="main"><b>${esc(h.a.num ?? '?')} ${esc(h.a.street) || '(rue non lue)'}</b>
+      <span class="sub">${esc(h.a.cp)} ${esc(h.a.city)} · ${esc(h.t)}${h.hand ? ' · manuscrit' : ''}${h.fixed ? ' · corrigé' : ''}</span></div>
+    <span class="badge ${h.tournee ? clsGlobal(h.score) : 'ko'}" title="${Math.round(h.score * 100)} %">${h.tournee ? esc(h.tournee) : '—'}</span>
+    ${h.score < 0.9 ? learnForm(h.id) : ''}</div>`).join('') || `<p class="empty">${only ? 'Aucun doute.' : 'Aucune lettre scannée.'}</p>`;
+  $('#hclr').hidden = !state.hist.length;
 }
 
 export function initHistory() {

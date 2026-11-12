@@ -18,10 +18,11 @@ export function renderTable() {
 export function renderLearned() {
   const list = [...state.ranges.filter(r => r.source === 'learned'),
     ...state.pending.filter(p => p.op === 'add').map(p => ({ ...p.range, pending: true, id: p.cid }))];
-  $('#learned').innerHTML = list.map(l => `<div class="card">${esc(l.cp)} ${esc(l.street)} n°${l.from_n}${l.to_n !== l.from_n ? '–' + l.to_n : ''} → <b>T${esc(l.tournee)}</b>
-    ${l.pending ? '<small>⏳ en attente d\'envoi</small>' : ''}
-    ${canDelete(l) ? `<button class="b s" data-del="${esc(l.id)}" aria-label="Supprimer">×</button>` : ''}</div>`).join('')
-    || '<p class="mu">Rien pour l\'instant.</p>';
+  $('#learned').innerHTML = list.map(l => `<div class="item">
+    <div class="main"><b>${esc(l.street)}</b><span class="sub">${esc(l.cp)} · n° ${l.from_n}${l.to_n !== l.from_n ? '–' + l.to_n : ''}${l.pending ? ' · en attente d\'envoi' : ''}</span></div>
+    <span class="badge">${esc(l.tournee)}</span>
+    ${canDelete(l) ? `<button class="del" data-del="${esc(l.id)}" aria-label="Supprimer">×</button>` : ''}</div>`).join('')
+    || '<p class="empty">Aucun ajout pour l\'instant.</p>';
 }
 
 export function initTable() {

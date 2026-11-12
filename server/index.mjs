@@ -32,6 +32,7 @@ const cfg = {
   visionKey: env.VISION_API_KEY || '',
   visionTimeout: +(env.VISION_TIMEOUT_MS || 60000),
   secondPass: env.SECOND_PASS !== '0',
+  keepAliveMin: +(env.VISION_KEEPALIVE_MIN ?? 4),   // 0 = ne pas garder le modèle en mémoire
   gazetteer: env.GAZETTEER_PATH || join(here, 'data', 'gazetteer.json'),
   maxBytes: +(env.MAX_IMAGE_BYTES || 6 * 1024 * 1024),
   perMinute: +(env.RATE_PER_MINUTE || 30),
@@ -48,6 +49,14 @@ if (existsSync(cfg.gazetteer)) {
   console.log('Répertoire chargé :', gaz.size());
 } else {
   console.warn(`⚠ ${cfg.gazetteer} absent : seule la base des tournées servira à corriger (voir « npm run gazetteer »).`);
+}
+
+// Liste nationale des codes postaux (bpost + BeST), partagée avec l'application.
+const pcFile = join(here, '..', 'src', 'data', 'postcodes.json');
+if (existsSync(pcFile)) {
+  const pc = JSON.parse(readFileSync(pcFile, 'utf8'));
+  for (const [cp, names] of Object.entries(pc)) for (const n of names) gaz.addLocality(cp, n);
+  console.log(`Codes postaux belges : ${Object.keys(pc).length}`);
 }
 
 const vision = createVision({ url: cfg.visionUrl, model: cfg.visionModel, apiKey: cfg.visionKey, timeoutMs: cfg.visionTimeout });
@@ -143,7 +152,8 @@ const server = http.createServer(async (req, res) => {
     await refreshTable(user.token);
 
     const out = await readLetter({ image, mime, vision, gaz, secondPass: cfg.secondPass });
-    console.log(`lecture ${out.ms} ms · manuscrit=${out.handwritten} · corrections=${out.corrections.length}`); // jamais l'adresse ni l'image
+    const { timing: t } = out;
+    console.log(`lecture ${out.ms} ms (modèle ${t.read}, correction ${t.correct}, 2e passage ${t.choose}) · jetons ${t.tokens?.in ?? '?'}→${t.tokens?.out ?? '?'} · manuscrit=${out.handwritten} · corrections=${out.corrections.length}`); // jamais l'adresse ni l'image
     return send(res, 200, out);
   } catch (e) {
     console.error('Erreur :', e.message);
@@ -152,3 +162,12 @@ const server = http.createServer(async (req, res) => {
 });
 server.requestTimeout = cfg.visionTimeout * 2 + 10_000;
 server.listen(cfg.port, () => console.log(`Serveur de lecture sur :${cfg.port} · modèle ${cfg.visionModel} via ${cfg.visionUrl}`));
+
+/* ----- modèle gardé en mémoire : la première lettre n'attend pas son chargement (plusieurs secondes) ----- */
+const warm = first => vision.warm()
+  .then(ms => { if (first || ms > 2000) console.log(`Modèle ${first ? 'chargé' : 'rechargé'} en ${ms} ms`); })
+  .catch(e => { if (first) console.warn('⚠ Modèle de vision injoignable pour le moment :', e.message); });
+if (cfg.keepAliveMin > 0) {
+  warm(true);
+  setInterval(() => warm(false), cfg.keepAliveMin * 60_000).unref();
+}

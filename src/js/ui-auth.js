@@ -7,10 +7,10 @@ const ROLE = { admin: 'administrateur', contributor: 'contributeur', anon: 'non 
 export function renderStatus(shared) {
   const m = $('#mode'), b = $('#banner'), a = $('#acct');
   a.hidden = !shared;
-  if (!shared) m.textContent = '○ mode local (non partagé)';
-  else if (!state.online) m.textContent = '⚠ hors ligne';
-  else m.textContent = state.user ? '● base partagée' : '○ non connecté';
-  a.textContent = state.user ? 'Compte' : 'Connexion';
+  const [label, s] = !shared ? ['Local', ''] : !state.online ? ['Hors ligne', 'wa'] : state.user ? ['Partagé', 'ok'] : ['Non connecté', 'wa'];
+  m.textContent = label; m.dataset.s = s;
+  m.title = !shared ? 'Mode local : données sur cet appareil uniquement' : '';
+  a.setAttribute('aria-label', state.user ? 'Compte' : 'Connexion');
 
   const msgs = [];
   if (shared && !state.online) msgs.push('Hors ligne : lecture avec le tableau en cache.');

@@ -4,15 +4,15 @@
 const SYSTEM = `Tu lis des adresses postales belges sur des lettres et enveloppes photographiées, imprimées ou écrites à la main.
 Tu recopies fidèlement ce qui est écrit. Tu n'inventes jamais un élément illisible : tu mets null.`;
 
-/** Consigne de lecture. `hints` : liste « CP Localité » des communes desservies, pour aider à déchiffrer. */
+/**
+ * Consigne de lecture. `hints` : liste « CP Localité » des communes desservies, pour aider à déchiffrer.
+ * Réponse volontairement courte (clés d'une lettre, pas de transcription) : le temps de lecture dépend surtout
+ * du nombre de jetons produits. Mesuré sur qwen2.5vl:7b : ~370 ms par lettre contre ~700 ms avec l'ancienne
+ * consigne, et le numéro de maison n'est plus perdu (« numéro de maison (nombre) » au lieu de « nombre ou null »).
+ */
 export function readPrompt(hints = []) {
   return `Lis l'adresse du DESTINATAIRE sur cette image (ignore l'expéditeur, les tampons, les codes-barres et le logo).
-${hints.length ? `Les lettres sont normalement destinées à l'une de ces localités : ${hints.join(', ')}.\n` : ''}Réponds uniquement avec un objet JSON :
-{"texte": "les lignes de l'adresse telles qu'écrites, séparées par \\n",
- "numero": nombre ou null, "boite": "texte" ou null, "rue": "nom complet de la rue sans le numéro" ou null,
- "cp": "code postal à 4 chiffres" ou null, "ville": "localité" ou null,
- "manuscrit": true si l'adresse est écrite à la main, sinon false,
- "lisibilite": nombre entre 0 et 1}`;
+${hints.length ? `Les lettres sont normalement destinées à l'une de ces localités : ${hints.join(', ')}.\n` : ''}Réponds uniquement en JSON : {"n": numéro de maison (nombre) ou null, "b": boîte ou null, "r": nom complet de la rue sans le numéro ou null, "cp": code postal à 4 chiffres ou null, "v": localité ou null, "m": true si écrit à la main sinon false}`;
 }
 
 /** Consigne de second passage : choisir parmi des rues réelles proches de la lecture. */
@@ -22,6 +22,17 @@ export function choosePrompt(read, candidates) {
 ${list}
 Regarde à nouveau l'écriture. Laquelle est écrite sur la lettre ? Réponds uniquement en JSON : {"choix": numéro de la liste, ou 0 si aucune ne correspond}`;
 }
+
+const nullable = t => ({ type: [t, 'null'] });
+const schema = (name, properties) => ({
+  type: 'json_schema',
+  json_schema: { name, strict: true, schema: { type: 'object', additionalProperties: false, required: Object.keys(properties), properties } },
+});
+/** Sorties contraintes par schéma (JSON toujours valide) ; repli automatique sur « json_object » si le serveur refuse. */
+export const READ_FORMAT = schema('adresse', {
+  n: nullable('integer'), b: nullable('string'), r: nullable('string'), cp: nullable('string'), v: nullable('string'), m: { type: 'boolean' },
+});
+export const CHOOSE_FORMAT = schema('choix', { choix: { type: 'integer' } });
 
 /** Extrait le premier objet JSON d'une réponse de modèle (tolère les blocs ```json et le texte autour). */
 export function parseModelJson(text) {
@@ -54,70 +65,74 @@ export function fixPostcode(s) {
   return '';
 }
 
-/** Réponse du modèle → { num, box, street, cp, city, raw, handwritten, legibility } (forme de parseAddr). */
+/** Réponse du modèle → { num, box, street, cp, city, handwritten }. Accepte les clés courtes (n, b, r, v, m) ou longues. */
 export function toAddress(j) {
   const str = v => (v == null ? '' : String(v).trim());
-  const n = parseInt(str(j?.numero).match(/\d+/)?.[0] ?? '', 10);
-  const cp = fixPostcode(str(j?.cp));
-  const leg = Number(j?.lisibilite);
+  const n = parseInt(str(j?.n ?? j?.numero).match(/\d+/)?.[0] ?? '', 10);
   return {
     num: Number.isFinite(n) ? n : null,
-    box: str(j?.boite) || null,
-    street: str(j?.rue),
-    cp,
-    city: str(j?.ville),
-    raw: str(j?.texte),
-    handwritten: j?.manuscrit === true,
-    legibility: Number.isFinite(leg) ? Math.max(0, Math.min(1, leg)) : null,
+    box: str(j?.b ?? j?.boite) || null,
+    street: str(j?.r ?? j?.rue),
+    cp: fixPostcode(str(j?.cp)),
+    city: str(j?.v ?? j?.ville),
+    handwritten: (j?.m ?? j?.manuscrit) === true,
   };
 }
 
 export function createVision({ url, model, apiKey = '', timeoutMs = 60000, fetchImpl = fetch }) {
-  const endpoint = url.replace(/\/+$/, '') + '/chat/completions';
+  const base = url.replace(/\/+$/, ''), endpoint = base + '/chat/completions';
+  const headers = { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) };
+  let schemaOk = true; // passe à false si le serveur du modèle ne connaît pas response_format json_schema
 
-  async function ask(image, mime, prompt, maxTokens) {
+  async function post(body) {
     const ctrl = new AbortController(), t = setTimeout(() => ctrl.abort(), timeoutMs);
-    try {
-      const res = await fetchImpl(endpoint, {
-        method: 'POST',
-        signal: ctrl.signal,
-        headers: { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
-        body: JSON.stringify({
-          model,
-          temperature: 0,
-          max_tokens: maxTokens,
-          response_format: { type: 'json_object' },
-          messages: [
-            { role: 'system', content: SYSTEM },
-            { role: 'user', content: [
-              { type: 'image_url', image_url: { url: `data:${mime};base64,${image.toString('base64')}` } },
-              { type: 'text', text: prompt },
-            ] },
-          ],
-        }),
-      });
-      if (!res.ok) throw new Error(`Modèle de vision : HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
-      const data = await res.json();
-      const j = parseModelJson(data?.choices?.[0]?.message?.content);
-      if (!j) throw new Error('Modèle de vision : réponse non JSON');
-      return j;
-    } finally { clearTimeout(t); }
+    try { return await fetchImpl(endpoint, { method: 'POST', signal: ctrl.signal, headers, body: JSON.stringify(body) }); }
+    finally { clearTimeout(t); }
+  }
+
+  /** Retourne { json, tokens: { in, out } }. */
+  async function ask(image, mime, prompt, maxTokens, format) {
+    const body = fmt => ({
+      model, temperature: 0, max_tokens: maxTokens, response_format: fmt,
+      messages: [
+        { role: 'system', content: SYSTEM },
+        { role: 'user', content: [
+          { type: 'image_url', image_url: { url: `data:${mime};base64,${image.toString('base64')}` } },
+          { type: 'text', text: prompt },
+        ] },
+      ],
+    });
+    let res = await post(body(schemaOk ? format : { type: 'json_object' }));
+    if (res.status === 400 && schemaOk) { schemaOk = false; res = await post(body({ type: 'json_object' })); }
+    if (!res.ok) throw new Error(`Modèle de vision : HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
+    const data = await res.json();
+    const json = parseModelJson(data?.choices?.[0]?.message?.content);
+    if (!json) throw new Error('Modèle de vision : réponse non JSON');
+    return { json, tokens: { in: data?.usage?.prompt_tokens ?? 0, out: data?.usage?.completion_tokens ?? 0 } };
   }
 
   return {
     model,
     /** Lecture de l'adresse. */
-    read: async (image, mime, hints) => toAddress(await ask(image, mime, readPrompt(hints), 400)),
+    read: async (image, mime, hints) => {
+      const { json, tokens } = await ask(image, mime, readPrompt(hints), 120, READ_FORMAT);
+      return { ...toAddress(json), tokens };
+    },
     /** Second passage : index (0-based) de la rue choisie parmi `candidates`, ou -1. */
     choose: async (image, mime, read, candidates) => {
-      const j = await ask(image, mime, choosePrompt(read, candidates), 40);
-      const i = parseInt(j?.choix, 10);
+      const { json } = await ask(image, mime, choosePrompt(read, candidates), 20, CHOOSE_FORMAT);
+      const i = parseInt(json?.choix, 10);
       return Number.isFinite(i) && i >= 1 && i <= candidates.length ? i - 1 : -1;
     },
-    /** Vérifie que le serveur du modèle répond. */
-    ping: async () => {
-      const res = await fetchImpl(url.replace(/\/+$/, '') + '/models', { headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {} });
-      return res.ok;
+    /** Charge le modèle en mémoire (appel minuscule, sans image). À répéter pour qu'il y reste. Retourne la durée en ms. */
+    warm: async () => {
+      const t0 = Date.now();
+      const res = await post({ model, max_tokens: 1, messages: [{ role: 'user', content: 'ok' }] });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      await res.arrayBuffer();
+      return Date.now() - t0;
     },
+    /** Vérifie que le serveur du modèle répond. */
+    ping: async () => (await fetchImpl(base + '/models', { headers })).ok,
   };
 }

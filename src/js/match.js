@@ -6,6 +6,7 @@ export const norm = s =>
   String(s ?? '')
     .toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\u0153/g, 'oe').replace(/\u00e6/g, 'ae').replace(/\u00df/g, 'ss')
     .replace(/[’']/g, ' ')
     .replace(/[^a-z0-9 ]/g, ' ')
     .replace(/\b(de|du|des|la|le|les|l|d)\b/g, ' ')
@@ -27,11 +28,18 @@ export function lev(a, b) {
 }
 
 /** Similarité normalisée dans [0,1] entre deux libellés (après `norm`). */
-export const sim = (a, b) => {
-  a = norm(a); b = norm(b);
+export const sim = (a, b) => simNorm(norm(a), norm(b));
+
+/** Similarité de deux libellés déjà normalisés. */
+export const simNorm = (a, b) => {
+  if (a === b) return a ? 1 : 0;
   const L = Math.max(a.length, b.length);
   return L ? 1 - lev(a, b) / L : 0;
 };
+
+const streetNorm = new WeakMap();
+/** Rue normalisée d'une plage, mise en cache tant que la plage existe. */
+const normOf = e => { let n = streetNorm.get(e); if (n === undefined) streetNorm.set(e, n = norm(e.street)); return n; };
 
 const TABLE_LINE = /^\s*(\d{4,5})\s+(.+?)\s+(?:de\s+)?(\d+)\s*(?:a|à|-)\s*(\d+)\s*(?:--|—|–|-|:)\s*tourn[ée]e\s*(\w+)/i;
 
@@ -69,11 +77,13 @@ const ST = 'rue|avenue|av|chaussée|chaussee|chemin|place|boulevard|route|impass
 export function parseAddr(t) {
   t = String(t ?? '');
   const a = { num: null, street: '', cp: '', city: '', raw: t.trim() };
-  const cps = [...t.matchAll(/\b(\d{4,5})\s+([A-Za-zÀ-ÿ'’\- ]{2,})/g)];
+  // « 5500 Dinant », « B-7090 Petit-Rœulx-lez-Braine », « 5020 P.A.E. de Rhisnes », « 7510 3 Suisses » :
+  // lettres de toutes langues, points, apostrophes, tirets ; la localité doit contenir au moins une lettre.
+  const cps = [...t.matchAll(/(?:^|[^\d])(\d{4,5})[ \t]+((?=[\p{L}\d'’.\- ]*\p{L})[\p{L}\d'’][\p{L}\d'’.\- ]+)/gmu)];
   if (cps.length) {
     const c = cps[cps.length - 1];
     a.cp = c[1];
-    a.city = c[2].trim();
+    a.city = c[2].replace(/[\s.\-]+$/, '').trim();
   }
   let m = t.match(new RegExp('(\\d+)\\s*(?:bte\\s*\\w+)?[,\\s]+((?:' + ST + ')\\b[^\\n\\d]*)', 'i'));
   if (m) {
@@ -93,8 +103,9 @@ export function parseAddr(t) {
  */
 export function match(a, ranges) {
   let best = null;
+  const street = norm(a.street);
   for (const e of ranges) {
-    const s = sim(a.street, e.street);
+    const s = simNorm(street, normOf(e));
     const p = a.cp && a.cp === e.cp ? 1 : 0;
     const n = a.num != null && a.num >= e.from_n && a.num <= e.to_n ? 1 : 0;
     const learned = e.source === 'learned';
@@ -126,6 +137,27 @@ export function localityIndex(localities = [], ranges = [], extra = []) {
   for (const r of ranges) add(r.cp, r.city);
   for (const x of extra) add(x.cp, x.city);
   return m;
+}
+
+/**
+ * Vérifie la localité lue par rapport aux localités connues (de préférence celles du code postal).
+ * Retourne { cls: 'ok' | 'wa' | 'ko', best: nom officiel le plus proche ou null }.
+ *  ok : nom identique (sans accents ni casse) ; wa : nom proche ou tronqué (« Dina » → Dinant) ; ko : inconnu.
+ * Sans aucune localité connue, rien n'est vérifiable : une localité lue reste « ok ».
+ */
+export function checkCity(city, cp, index) {
+  const c = norm(city);
+  if (!c) return { cls: 'ko', best: null };
+  const own = [...(index.get(cp) ?? [])];
+  const names = own.length ? own : [...index.values()].flatMap(s => [...s]);
+  if (!names.length) return { cls: 'ok', best: null };
+  let best = null, bs = -1;
+  for (const n of names) {
+    const nn = norm(n);
+    const s = nn === c ? 1 : Math.max(sim(n, city), nn.startsWith(c) && c.length >= 3 ? 0.75 : 0);
+    if (s > bs) { bs = s; best = n; }
+  }
+  return { cls: bs === 1 ? 'ok' : bs >= 0.6 ? 'wa' : 'ko', best: bs === 1 ? best : bs >= 0.6 ? best : null };
 }
 
 /**

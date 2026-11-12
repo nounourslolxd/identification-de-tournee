@@ -5,38 +5,14 @@
 //   --cp 5500,5501,…         codes postaux à garder (fortement conseillé : vos tournées seulement)
 //   --out <fichier.json>     défaut : server/data/gazetteer.json
 // Le tableau des tournées (Supabase) est ajouté en direct par le serveur, inutile de l'importer.
-import { createReadStream, mkdirSync, writeFileSync } from 'node:fs';
-import { createInterface } from 'node:readline';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createGazetteer } from './gazetteer.mjs';
+import { readCsv } from './csv.mjs';
 
-/** Découpe une ligne CSV (guillemets doubles, séparateur donné). */
-export function splitCsv(line, sep) {
-  const out = []; let cur = '', q = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (q) { if (c === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
-    else if (c === '"') q = true;
-    else if (c === sep) { out.push(cur); cur = ''; }
-    else cur += c;
-  }
-  out.push(cur);
-  return out;
-}
-const detectSep = header => [';', ',', '\t'].sort((a, b) => header.split(b).length - header.split(a).length)[0];
+export { splitCsv } from './csv.mjs';
 
-async function* rows(file) {
-  const rl = createInterface({ input: createReadStream(file, 'utf8'), crlfDelay: Infinity });
-  let head = null, sep = ',';
-  for await (let line of rl) {
-    if (!head) { line = line.replace(/^﻿/, ''); sep = detectSep(line); head = splitCsv(line, sep).map(h => h.trim().toLowerCase()); continue; }
-    if (!line.trim()) continue;
-    const v = splitCsv(line, sep), o = {};
-    head.forEach((h, i) => { o[h] = (v[i] ?? '').trim(); });
-    yield o;
-  }
-}
 const pick = (o, ...names) => { for (const n of names) if (o[n]) return o[n]; return ''; };
 
 /** Une ligne BeST → entrées de rue (une par langue disponible). */
@@ -93,12 +69,12 @@ async function main() {
 
   for (const f of opt.bpost) {
     let n = 0;
-    for await (const o of rows(f)) { const e = bpostEntry(o); if (keep(e.cp)) { g.addLocality(e.cp, e.city); n++; } }
+    for await (const o of readCsv(f)) { const e = bpostEntry(o); if (keep(e.cp)) { g.addLocality(e.cp, e.city); n++; } }
     console.log(`bpost ${f} : ${n} localités`);
   }
   for (const f of opt.best) {
     let n = 0;
-    for await (const o of rows(f)) for (const e of bestEntries(o)) if (keep(e.cp)) { g.addStreet(e); n++; }
+    for await (const o of readCsv(f)) for (const e of bestEntries(o)) if (keep(e.cp)) { g.addStreet(e); n++; }
     console.log(`BeST ${f} : ${n} adresses retenues`);
   }
   if (opt.osm) {

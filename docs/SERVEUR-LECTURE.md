@@ -28,6 +28,16 @@ Sans GPU, ça marche aussi, mais comptez plusieurs dizaines de secondes par lett
 avec l'API OpenAI (`/v1/chat/completions` avec images) convient : Ollama, vLLM, llama.cpp, LM Studio. Changez
 `VISION_URL` et `VISION_MODEL`.
 
+## Vitesse
+Mesuré sur une RTX 5080 avec `qwen2.5vl:7b`, sur des lettres de synthèse : environ **0,4 s par lettre**, modèle déjà chargé.
+
+- Le temps dépend surtout de la longueur de la réponse du modèle. La consigne demande donc une réponse courte
+  (clés d'une lettre, sans transcription), contrainte par un schéma JSON.
+- Le serveur charge le modèle au démarrage et le garde en mémoire (`VISION_KEEPALIVE_MIN`, 4 min par défaut).
+  Sans cela, la première lettre après une pause attend le rechargement, soit plusieurs secondes.
+- La taille de l'image compte peu : 1600 px au lieu de 1280 px coûte environ 40 ms.
+- Chaque lecture est journalisée avec le détail des temps et des jetons, sans l'adresse ni l'image.
+
 ## Installation (Docker)
 1. Sur le serveur, avec un nom de domaine qui pointe vers lui (ports 80/443 ouverts) :
    ```bash

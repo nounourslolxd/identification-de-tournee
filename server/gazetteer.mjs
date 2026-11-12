@@ -23,6 +23,7 @@ export function createGazetteer() {
   const streets = new Map();   // cp → Map(clé normalisée → { cp, street, city, min, max, src:Set })
   const table = new Map();     // idem, pour le tableau des tournées (remplacé à chaque rafraîchissement)
   const names = new Map();     // cp → Set(noms de localité)
+  const served = new Set();    // codes postaux réellement desservis (ceux du tableau des tournées)
 
   const put = (store, { cp, street, city = '', num = null, min = null, max = null, src }) => {
     cp = String(cp ?? '').trim(); street = String(street ?? '').trim();
@@ -53,6 +54,8 @@ export function createGazetteer() {
   /** Remplace les rues issues du tableau (plages 'table' et 'learned' de Supabase). */
   function setTable(ranges = [], localities = []) {
     table.clear();
+    served.clear();
+    for (const x of [...ranges, ...localities]) if (/^\d{4}$/.test(String(x.cp ?? '').trim())) served.add(String(x.cp).trim());
     for (const r of ranges) put(table, { cp: r.cp, street: r.street, city: r.city, min: r.from_n, max: r.to_n, src: r.source === 'learned' ? 'appris' : 'tableau' });
     for (const l of localities) addLocality(l.cp, l.city);
   }
@@ -104,7 +107,7 @@ export function createGazetteer() {
     localities: [...names].flatMap(([cp, set]) => [...set].map(city => ({ cp, city }))),
   });
 
-  return { addStreet, addLocality, setTable, hasCp, citiesOf, cpsForCity, streetCandidates, size, toJSON, cps };
+  return { addStreet, addLocality, setTable, hasCp, citiesOf, cpsForCity, streetCandidates, size, toJSON, cps, servedCps: () => new Set(served) };
 }
 
 /** Recharge un répertoire depuis l'objet produit par toJSON(). */
@@ -129,22 +132,35 @@ export function correctAddress(a, gaz) {
   const corrections = [];
   let ambiguous = null, numberInRange = null;
 
-  // 1. Code postal : inconnu ou absent → déduit de la localité si elle est univoque.
+  // 1. Code postal : inconnu ou absent → déduit de la localité si elle est univoque ; sinon la rue
+  //    sera cherchée seulement dans les codes postaux de cette localité (Bruxelles, Namur, Gent…).
+  let searchCps = [];
   if (!gaz.hasCp(addr.cp)) {
     const byCity = gaz.cpsForCity(addr.city);
     if (byCity.length === 1) { corrections.push(`Code postal ${addr.cp || '(absent)'} → ${byCity[0]} (d'après « ${addr.city} »)`); addr.cp = byCity[0]; }
+    else searchCps = byCity;
   }
+  if (gaz.hasCp(addr.cp)) searchCps = [addr.cp];
 
   // 2. Rue : la plus proche dans le code postal (ou partout si le code postal est inconnu).
   if (addr.street) {
-    const c = gaz.streetCandidates(addr.street, gaz.hasCp(addr.cp) ? [addr.cp] : [], 5);
+    const c = gaz.streetCandidates(addr.street, searchCps, 8);
     const [b, s2] = c;
-    const clear = b && (!s2 || b.score - s2.score >= STREET_GAP || normStreet(b.street) === normStreet(s2.street));
+    // Même nom de rue dans plusieurs codes postaux candidats : la rue est sûre, mais pas le code postal.
+    const sameName = s2 && normStreet(b.street) === normStreet(s2.street);
+    const clear = b && (!s2 || b.score - s2.score >= STREET_GAP || (sameName && b.cp === s2.cp));
     if (b && (b.score >= STREET_SURE || (b.score >= STREET_OK && clear))) {
-      if (b.street !== addr.street) corrections.push(`Rue « ${addr.street} » → « ${b.street} » (${Math.round(b.score * 100)} %, ${b.src.join('/') || 'répertoire'})`);
+      if (normStreet(b.street) !== normStreet(addr.street)) corrections.push(`Rue « ${addr.street} » → « ${b.street} » (${Math.round(b.score * 100)} %, ${b.src.join('/') || 'répertoire'})`);
       addr.street = b.street;
-      if (b.cp !== addr.cp) { corrections.push(`Code postal ${addr.cp || '(absent)'} → ${b.cp} (d'après la rue)`); addr.cp = b.cp; }
-      if (addr.num != null && b.min != null) numberInRange = addr.num >= b.min && addr.num <= b.max;
+      // Le code postal n'est déduit de la rue que s'il est univoque : une seule rue de ce nom parmi les
+      // candidats, ou une seule dont les numéros connus contiennent le numéro lu.
+      const twins = c.filter(x => normStreet(x.street) === normStreet(b.street));
+      const inRange = addr.num == null ? [] : twins.filter(x => x.min != null && addr.num >= x.min && addr.num <= x.max);
+      const pick = twins.length === 1 ? b : inRange.length === 1 ? inRange[0] : null;
+      if (pick && pick.cp !== addr.cp) { corrections.push(`Code postal ${addr.cp || '(absent)'} → ${pick.cp} (d'après la rue)`); addr.cp = pick.cp; }
+      else if (!pick && !gaz.hasCp(addr.cp)) corrections.push(`Rue présente dans plusieurs codes postaux (${twins.map(x => x.cp).join(', ')}) : code postal à vérifier`);
+      const ref = pick ?? b;
+      if (addr.num != null && ref.min != null) numberInRange = addr.num >= ref.min && addr.num <= ref.max;
     } else if (b && b.score >= 0.5) {
       ambiguous = c.filter(x => x.score >= 0.5);
     }

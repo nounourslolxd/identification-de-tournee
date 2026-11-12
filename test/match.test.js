@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   norm, lev, sim, parseAddr, parseTable, formatTable, parseLocalities, match,
-  isFound, confidence, cls, clsGlobal, localityIndex, searchLocality, fmtRange,
+  isFound, confidence, cls, clsGlobal, localityIndex, searchLocality, fmtRange, checkCity,
 } from '../src/js/match.js';
 
 const TABLE = `5500 rue de l'avie de 1 a 16 -- tournée 13
@@ -217,4 +217,15 @@ test('localityIndex : inclut localités des plages apprises', () => {
 test('fmtRange', () => {
   assert.equal(fmtRange([3, 3]), '3');
   assert.equal(fmtRange([1, 5]), '1–5');
+});
+
+test('checkCity : exacte → ok, tronquée ou proche → orange avec le nom officiel, inconnue → rouge', () => {
+  const idx = localityIndex([{ cp: '5500', city: 'Dinant' }, { cp: '5000', city: 'Namur' }]);
+  assert.deepEqual(checkCity('DINANT', '5500', idx), { cls: 'ok', best: 'Dinant' });
+  assert.deepEqual(checkCity('Dina', '5500', idx), { cls: 'wa', best: 'Dinant' });
+  assert.deepEqual(checkCity('Dinan', '5500', idx), { cls: 'wa', best: 'Dinant' });
+  assert.equal(checkCity('Liège', '5500', idx).cls, 'ko');
+  assert.equal(checkCity('', '5500', idx).cls, 'ko');
+  assert.deepEqual(checkCity('Namr', '9999', idx), { cls: 'wa', best: 'Namur' }); // CP inconnu : toutes les localités
+  assert.equal(checkCity('Dinant', '5500', new Map()).cls, 'ok');                // rien à comparer
 });

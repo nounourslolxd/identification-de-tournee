@@ -90,8 +90,10 @@ test('parseModelJson : tolère le texte et les blocs ```json', () => {
 });
 
 test('toAddress : normalise la réponse du modèle', () => {
-  const a = toAddress({ numero: '12b', rue: ' Rue Grande ', cp: 'B-5500', ville: 'Dinant', manuscrit: true, lisibilite: 1.4, texte: 'x' });
-  assert.deepEqual([a.num, a.street, a.cp, a.city, a.handwritten, a.legibility], [12, 'Rue Grande', '5500', 'Dinant', true, 1]);
+  const a = toAddress({ numero: '12b', rue: ' Rue Grande ', cp: 'B-5500', ville: 'Dinant', manuscrit: true });
+  assert.deepEqual([a.num, a.street, a.cp, a.city, a.handwritten], [12, 'Rue Grande', '5500', 'Dinant', true]);
+  const b = toAddress({ n: 30, b: 2, r: 'Rue Saint-Gilles', cp: '4000', v: 'Liège', m: false });   // clés courtes
+  assert.deepEqual([b.num, b.box, b.street, b.cp, b.city, b.handwritten], [30, '2', 'Rue Saint-Gilles', '4000', 'Liège', false]);
   assert.equal(toAddress({}).num, null);
 });
 
@@ -118,6 +120,7 @@ test('readLetter : second passage du modèle quand la rue est ambiguë', async (
   const r = await readLetter({ image: Buffer.alloc(1), mime: 'image/jpeg', vision, gaz: gaz() });
   assert.equal(r.street, 'Rue du Moulin Neuf');
   assert.equal(r.numberInRange, true);
+  assert.equal(r.read.street, 'Rue du Moulin N');
   assert.equal(r.handwritten, true);
   assert.deepEqual(r.candidates, []);
 });
@@ -133,4 +136,43 @@ test('import : CSV BeST et bpost', () => {
   assert.deepEqual(e, [{ cp: '5500', street: 'Rue Grande', city: 'Dinant', num: '12', src: 'BeST' }]);
   assert.deepEqual(bestEntries({ postcode: '5500', streetname_fr: 'X', status: 'retired' }), []);
   assert.deepEqual(bpostEntry({ 'code postal': '5500', 'localité': 'Dinant' }), { cp: '5500', city: 'Dinant' });
+});
+
+test('createVision : sortie par schéma, repli sur json_object si le serveur répond 400', async () => {
+  const formats = [];
+  const fetchImpl = async (url, opt) => {
+    const body = JSON.parse(opt.body);
+    formats.push(body.response_format.type);
+    if (body.response_format.type === 'json_schema') return { ok: false, status: 400, text: async () => 'unsupported' };
+    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"n":3,"b":null,"r":"Rue Sax","cp":"5500","v":"Dinant","m":true}' } }], usage: { prompt_tokens: 100, completion_tokens: 40 } }) };
+  };
+  const v = createVision({ url: 'http://m/v1', model: 'test', fetchImpl });
+  const a = await v.read(Buffer.from([1]), 'image/jpeg', []);
+  assert.deepEqual([a.num, a.street, a.tokens], [3, 'Rue Sax', { in: 100, out: 40 }]);
+  await v.read(Buffer.from([1]), 'image/jpeg', []);
+  assert.deepEqual(formats, ['json_schema', 'json_object', 'json_object']);   // le refus est mémorisé
+});
+
+test('createVision.warm : appel minuscule sans image', async () => {
+  let body;
+  const v = createVision({ url: 'http://m/v1', model: 'test', fetchImpl: async (u, o) => { body = JSON.parse(o.body); return { ok: true, arrayBuffer: async () => new ArrayBuffer(0) }; } });
+  assert.ok(await v.warm() >= 0);
+  assert.equal(body.max_tokens, 1);
+  assert.equal(typeof body.messages[0].content, 'string');
+});
+
+test('hintsFrom : seulement les codes postaux du tableau des tournées, même avec la liste nationale chargée', () => {
+  const g = gaz();
+  for (let cp = 1000; cp < 1200; cp++) g.addLocality(String(cp), 'Ville ' + cp);   // liste nationale : trop pour un indice
+  assert.deepEqual(hintsFrom(g), []);
+  g.setTable([{ cp: '5500', street: 'Rue Grande', city: 'Dinant', from_n: 1, to_n: 9, source: 'table' }]);
+  assert.deepEqual(hintsFrom(g), ['5500 Dinant/Anseremme']);
+});
+
+test('readLetter : renvoie le détail des temps et le texte lu', async () => {
+  const vision = { model: 'faux', read: async () => ({ num: 12, street: 'Rue Grande', cp: '5500', city: 'Dinant', handwritten: false, tokens: { in: 9, out: 3 } }) };
+  const r = await readLetter({ image: Buffer.alloc(1), mime: 'image/jpeg', vision, gaz: gaz() });
+  assert.equal(r.raw, '12 Rue Grande\n5500 Dinant');
+  assert.deepEqual(r.timing.tokens, { in: 9, out: 3 });
+  assert.ok(r.timing.read >= 0 && r.timing.choose === 0);
 });
