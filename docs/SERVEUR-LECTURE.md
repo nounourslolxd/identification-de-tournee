@@ -84,3 +84,19 @@ Relancez l'import de temps en temps (nouvelles rues). Chaque correction est affi
   contiennent ni l'image ni l'adresse, seulement la durée et le nombre de corrections.
 - Le modèle tourne chez vous : aucune image n'est envoyée à un tiers.
 - La seule clé Supabase utilisée par le serveur est la clé `anon`, jamais la clé `service_role`.
+
+## Serveur sur un PC à la maison, joint par un tunnel (sans nom de domaine)
+Pour que l'application installée sur les téléphones (APK ou site) joigne le modèle qui tourne sur votre PC :
+
+1. **Code d'accès** : dans `server/.env`, `ACCESS_CODE=` suivi d'un code d'au moins 12 caractères tiré au hasard.
+   Ajoutez `https://localhost` (l'APK) et l'adresse du site à `ALLOWED_ORIGINS`. Ce fichier ne va jamais dans le dépôt.
+2. **Tunnel** : installez [Tailscale](https://tailscale.com), connectez le PC, puis `tailscale funnel --bg 8787`.
+   La première fois, Tailscale donne un lien pour autoriser Funnel. L'adresse obtenue (`https://nom-du-pc.xxxx.ts.net`)
+   est fixe et en HTTPS.
+3. **Démarrage** : double-cliquez sur `demarrer-serveur.bat` (Ollama, tunnel, serveur). Le PC doit rester allumé
+   pendant que les facteurs scannent.
+4. **Sur chaque téléphone** : bouton Réglages (roue dentée) → adresse du serveur et code d'accès → « Enregistrer et vérifier ».
+
+Le code n'est écrit ni dans le site ni dans l'APK, qui sont publics : il n'existe que dans `server/.env` et dans les
+réglages de chaque téléphone. Dix essais ratés par minute bloquent l'adresse qui essaie. Pour révoquer l'accès,
+changez `ACCESS_CODE` et redémarrez le serveur.
