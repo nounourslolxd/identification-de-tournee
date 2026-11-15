@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Identification de tournée postale par scan d'adresse (PWA)",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "test": "node --test \"test/*.test.js\"",
     "vendor": "node scripts/vendor.mjs",
@@ -18,5 +20,10 @@
     "@tesseract.js-data/fra": "^1.0.0",
     "tesseract.js": "^5.1.1",
     "tesseract.js-core": "^5.1.1"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/cli": "^8.6.2",
+    "@capacitor/core": "^8.6.2"
   }
 }

@@ -83,6 +83,18 @@ Chaque push sur `main` lance les tests puis déploie ; les *pull requests* ne la
 Le build échoue si Tesseract, la langue française ou le client Supabase ne sont pas copiés dans `dist/vendor/`
 ou si une clé `service_role` est détectée.
 
+## Application Android (APK)
+
+Chaque push sur `main` construit aussi un APK (workflow `.github/workflows/android.yml`) et le publie dans la
+release **`apk`** du dépôt : téléchargez `tournees.apk` sur le téléphone puis ouvrez-le (il faut autoriser
+l'installation depuis le navigateur). L'APK embarque le site (Capacitor) : il fonctionne sans GitHub Pages.
+
+- Le projet Android est dans `android/`. Après une modification du site : `npm run build && npx cap sync android`.
+- **Signature** : les secrets `KEYSTORE_B64` (fichier `.jks` en base64) et `KEYSTORE_PASSWORD` signent l'APK avec
+  toujours la même clé, sinon Android refuse d'installer une mise à jour par-dessus l'ancienne version.
+  Conservez le fichier `.jks` et son mot de passe : sans eux, plus de mise à jour possible sans désinstaller.
+- L'APK utilise les mêmes variables que le site (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `OCR_SERVER_URL`).
+
 ## Rôles
 
 | Action                                   | Contributeur | Administrateur |

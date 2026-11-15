@@ -1,0 +1,75 @@
+name: APK Android
+
+# Construit l'application Android (Capacitor : le site est embarqué dans l'APK) et la publie dans la release « apk ».
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # publier l'APK dans une release
+
+concurrency:
+  group: android
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    name: Construire l'APK
+    runs-on: ubuntu-latest
+    env:
+      # Mêmes variables que le site (Settings → Secrets and variables → Actions → Variables).
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+      OCR_SERVER_URL: ${{ vars.OCR_SERVER_URL }}
+      APP_VERSION_CODE: ${{ github.run_number }}
+      APP_VERSION_NAME: 1.0.${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npm test
+      - name: Construire le site puis le copier dans le projet Android
+        run: |
+          npm run build
+          npx cap sync android
+      - name: Clé de signature (secrets KEYSTORE_B64 et KEYSTORE_PASSWORD)
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/tournees.jks"
+            echo "KEYSTORE_FILE=$RUNNER_TEMP/tournees.jks" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Pas de clé de signature : APK signé avec une clé de débogage (une mise à jour demandera de désinstaller l'ancienne version)."
+          fi
+      - name: Construire l'APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/tournees.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tournees-apk
+          path: tournees.apk
+      - name: Publier dans la release « apk » (toujours la dernière version)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="Application Android « Tournées », version $APP_VERSION_NAME (commit ${GITHUB_SHA::7}). Téléchargez tournees.apk sur le téléphone, puis ouvrez-le pour l'installer."
+          if gh release view apk >/dev/null 2>&1; then
+            gh release upload apk tournees.apk --clobber
+            gh release edit apk --title "Tournées pour Android — $APP_VERSION_NAME" --notes "$notes"
+          else
+            gh release create apk tournees.apk --title "Tournées pour Android — $APP_VERSION_NAME" --notes "$notes" --latest
+          fi
