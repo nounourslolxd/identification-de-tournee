@@ -2,12 +2,14 @@
 //   POST /read   corps = image JPEG/PNG/WebP, en-tête Authorization: Bearer <jeton Supabase du facteur>
 //   POST /table  corps = morceau d'une photo du tableau de tri (une colonne) → lignes « code postal, tournée, rue, plages »
 //   GET  /health état du modèle et du répertoire
+//   GET  /auth   vérifie le code d'accès (réglages de l'application)
+// Accès : en-tête X-Access-Code (code partagé, ACCESS_CODE) ou jeton Supabase du facteur.
 // Les images sont traitées en mémoire puis oubliées : rien n'est écrit sur disque ni dans les journaux.
 import http from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { createGazetteer, loadGazetteer } from './gazetteer.mjs';
 import { createVision } from './vision.mjs';
 import { readLetter } from './pipeline.mjs';
@@ -29,6 +31,7 @@ const cfg = {
   supabaseUrl: (env.SUPABASE_URL || '').replace(/\/+$/, ''),
   supabaseAnon: env.SUPABASE_ANON_KEY || '',
   allowAnonymous: env.ALLOW_ANONYMOUS === '1',
+  accessCode: (env.ACCESS_CODE || '').trim(),      // code partagé saisi dans les réglages de l'application
   visionUrl: env.VISION_URL || 'http://localhost:11434/v1',
   visionModel: env.VISION_MODEL || 'qwen2.5vl:7b',
   visionKey: env.VISION_API_KEY || '',
@@ -39,8 +42,12 @@ const cfg = {
   maxBytes: +(env.MAX_IMAGE_BYTES || 6 * 1024 * 1024),
   perMinute: +(env.RATE_PER_MINUTE || 30),
 };
-if (!cfg.supabaseUrl && !cfg.allowAnonymous) {
-  console.error('✘ SUPABASE_URL absent : définissez-le (comptes des facteurs) ou ALLOW_ANONYMOUS=1 pour un essai en réseau local.');
+if (!cfg.supabaseUrl && !cfg.accessCode && !cfg.allowAnonymous) {
+  console.error('✘ Aucune protection : définissez ACCESS_CODE (code partagé), SUPABASE_URL (comptes des facteurs), ou ALLOW_ANONYMOUS=1 pour un essai sur ce PC.');
+  process.exit(1);
+}
+if (cfg.accessCode && cfg.accessCode.length < 12) {
+  console.error('✘ ACCESS_CODE trop court : au moins 12 caractères (le serveur est joignable depuis internet).');
   process.exit(1);
 }
 
@@ -63,11 +70,32 @@ if (existsSync(pcFile)) {
 
 const vision = createVision({ url: cfg.visionUrl, model: cfg.visionModel, apiKey: cfg.visionKey, timeoutMs: cfg.visionTimeout });
 
-/* ----- authentification : le jeton Supabase du facteur est vérifié auprès de Supabase (cache 5 min) ----- */
+/* ----- authentification -----
+   1. Code d'accès partagé (en-tête X-Access-Code) : pour les téléphones qui joignent le PC par un tunnel.
+   2. Jeton Supabase du facteur, vérifié auprès de Supabase (cache 5 min).
+   Les essais ratés sont comptés par adresse : dix par minute au plus, pour qu'on ne puisse pas deviner le code. */
 const authCache = new Map();
 const hash = s => createHash('sha256').update(s).digest('hex');
+const clientIp = req => String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '?';
+const sameCode = (a, b) => { const x = Buffer.from(hash(a)), y = Buffer.from(hash(b)); return timingSafeEqual(x, y); };
+const failures = new Map();
+const tooManyFailures = ip => (failures.get(ip) ?? []).filter(t => Date.now() - t < 60_000).length >= 10;
+const noteFailure = ip => { failures.set(ip, [...(failures.get(ip) ?? []).filter(t => Date.now() - t < 60_000), Date.now()]); if (failures.size > 5000) failures.clear(); };
+
 async function authenticate(req) {
-  if (!cfg.supabaseUrl) return cfg.allowAnonymous ? { id: 'anonyme' } : null;
+  const ip = clientIp(req);
+  if (tooManyFailures(ip)) return null;
+  const code = String(req.headers['x-access-code'] || '').trim();
+  if (cfg.accessCode && code) {
+    if (sameCode(code, cfg.accessCode)) return { id: 'code:' + ip };
+    noteFailure(ip);
+    return null;
+  }
+  if (!cfg.supabaseUrl) {
+    if (cfg.allowAnonymous) return { id: 'anonyme' };
+    noteFailure(ip);
+    return null;
+  }
   const token = (req.headers.authorization || '').match(/^Bearer\s+(.+)$/i)?.[1];
   if (!token) return null;
   const k = hash(token), hit = authCache.get(k);
@@ -118,7 +146,7 @@ function cors(req, res) {
   if (o && (cfg.origins.includes(o) || cfg.origins.includes('*'))) {
     res.setHeader('Access-Control-Allow-Origin', o);
     res.setHeader('Vary', 'Origin');
-    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Access-Code');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Max-Age', '600');
   }
@@ -142,6 +170,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && path === '/health') {
       const model = await vision.ping().catch(() => false);
       return send(res, model ? 200 : 503, { ok: model, model: cfg.visionModel, gazetteer: gaz.size() });
+    }
+    // Vérifie l'adresse et le code saisis dans les réglages de l'application, sans rien lire.
+    if (req.method === 'GET' && path === '/auth') {
+      return (await authenticate(req)) ? send(res, 200, { ok: true, model: cfg.visionModel }) : send(res, 401, { error: 'Code d\'accès refusé' });
     }
     const table = path === '/table';
     if (req.method !== 'POST' || (path !== '/read' && !table)) return send(res, 404, { error: 'Introuvable' });

@@ -198,4 +198,8 @@ details[open]>summary::before{transform:rotate(90deg)}
 dialog{border:0;border-radius:22px;background:var(--surface);color:var(--tx);width:min(92vw,400px);padding:22px}
 dialog::backdrop{background:#0007;backdrop-filter:blur(2px)}
 dialog input{margin-top:6px}
+.field{display:block;font-size:14px;font-weight:600;color:var(--mu);margin-top:12px}
+.hint.ok{color:var(--ok)}.hint.ko{color:var(--ko)}
+#gear{position:relative}
+#gear[data-s=ok]::after{content:"";position:absolute;right:7px;top:7px;width:8px;height:8px;border-radius:50%;background:var(--ok)}
 #code{margin-top:10px}

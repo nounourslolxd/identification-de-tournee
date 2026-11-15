@@ -8,6 +8,7 @@ import { initScan, initLearnHandler, maybePrefetch } from './ui-scan.js';
 import { initHistory } from './ui-history.js';
 import { initAuth, promptIfSignedOut } from './ui-auth.js';
 import { setReaderServer } from './reader.js';
+import { initSettings } from './ui-settings.js';
 import { loadPostcodes, invalidateIndex } from './postcodes.js';
 
 on('ranges', invalidateIndex);          // avant les écrans : ils relisent l'index dans le même événement
@@ -18,6 +19,7 @@ try { ({ config } = await import('./config.js')); } catch { /* pas de config.js 
 const shared = !!(config.supabaseUrl && config.supabaseAnonKey);
 if (shared) initSharedMode();
 setReaderServer(config.ocrServerUrl);
+initSettings();
 
 document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('#tabs button, main section').forEach(x => x.classList.remove('on'));

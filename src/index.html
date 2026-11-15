@@ -23,12 +23,14 @@
   <symbol id="i-cam" viewBox="0 0 24 24"><path d="M4 8a2 2 0 0 1 2-2h2l1.5-2h5L16 6h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><circle cx="12" cy="12.5" r="3.5"/></symbol>
   <symbol id="i-img" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M20 16l-5-5-7 8"/></symbol>
   <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/></symbol>
   <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></symbol>
 </svg>
 
 <header class="top">
   <h1>Tournées</h1>
   <span id="mode" class="pill"></span>
+  <button id="gear" class="icon-btn" aria-label="Réglages"><svg><use href="#i-gear"/></svg></button>
   <button id="acct" class="icon-btn" hidden aria-label="Compte"><svg><use href="#i-user"/></svg></button>
 </header>
 <div id="banner" class="banner" hidden></div>
@@ -123,6 +125,22 @@
     </div>
     <div id="authmsg" class="hint" role="status"></div>
     <button class="btn ghost wide" id="authclose" type="button">Plus tard</button>
+  </form>
+</dialog>
+
+<dialog id="settings">
+  <form method="dialog">
+    <h2>Serveur de lecture</h2>
+    <p class="hint">Il lit le manuscrit et les photos du tableau. Sans lui, seul l'imprimé est lu, sur le téléphone.</p>
+    <label class="field">Adresse du serveur
+      <input id="seturl" type="url" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="https://mon-pc.exemple.ts.net">
+    </label>
+    <label class="field">Code d'accès
+      <input id="setcode" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX">
+    </label>
+    <div id="setmsg" class="hint" role="status"></div>
+    <button class="btn primary wide" id="setsave" type="button">Enregistrer et vérifier</button>
+    <button class="btn ghost wide" id="setclose" type="button">Fermer</button>
   </form>
 </dialog>
 
