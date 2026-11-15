@@ -136,8 +136,13 @@ export function initScan() {
     },
     onCapture: readCanvas,
   });
-  v.onclick = () => { if (scanner.active) scanner.capture(); };
-  v.onloadedmetadata = () => { if (v.videoWidth) box.style.setProperty('--cam-ar', v.videoWidth + '/' + v.videoHeight); };   // toucher l'image = lire tout de suite
+  // Toucher n'importe où sur l'image (cadre, bandeau, résultat affiché) = lire tout de suite, sans attendre la stabilité.
+  box.addEventListener('pointerdown', e => {
+    if (!scanner.active || e.target.closest('#torch')) return;
+    e.preventDefault();
+    scanner.capture();
+  });
+  v.onloadedmetadata = () => { if (v.videoWidth) box.style.setProperty('--cam-ar', v.videoWidth + '/' + v.videoHeight); };
   $('#torch').onclick = async () => $('#torch').setAttribute('aria-pressed', String(await scanner.setTorch(!scanner.torch)));
   $('#pick').onclick = () => $('#pf').click();
   $('#pf').onchange = async e => {

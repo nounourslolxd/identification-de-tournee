@@ -105,7 +105,7 @@ export function createScanner({ video, onStatus, onSharp, onCapture, onState = (
     video.srcObject = stream;
     await video.play();
     prev = ref = null; tracker.reset();
-    onStatus('Présentez une lettre'); onState({ state: 'search', progress: 0 });
+    onStatus("Touchez l'image pour lire"); onState({ state: 'search', progress: 0 });
     timer = setInterval(tick, 150);
     // L'écran reste allumé pendant le tri (si le navigateur le permet).
     navigator.wakeLock?.request('screen').then(w => { wake = w; }).catch(() => {});
@@ -139,14 +139,20 @@ export function createScanner({ video, onStatus, onSharp, onCapture, onState = (
     if (action === 'capture') capture();
   }
 
-  /** Capture l'image pleine résolution et la confie à onCapture. Utilisable aussi manuellement. */
+  /**
+   * Capture l'image pleine résolution et la confie à onCapture. Appelée aussi au toucher de l'image : la lecture part
+   * tout de suite, sans attendre que l'image soit stable. L'image se fige pendant la lecture (on voit ce qui est lu).
+   */
   async function capture() {
     if (busy || !video.videoWidth) return;
     busy = true;
-    onStatus('Lecture…'); onState({ state: 'reading', progress: 1 });
     const c = document.createElement('canvas');
     c.width = video.videoWidth; c.height = video.videoHeight;
     c.getContext('2d').drawImage(video, 0, 0);
+    video.pause();
+    gx.drawImage(c, 0, 0, W, H);
+    prev = toGray(gx.getImageData(0, 0, W, H).data);   // référence = l'image lue (même si on a touché en bougeant)
+    onStatus('Lecture…'); onState({ state: 'reading', progress: 1 });
     try {
       await onCapture(c);
       onStatus('Lu ✓ — retirez la lettre'); onState({ state: 'done', progress: 1 });
@@ -155,6 +161,7 @@ export function createScanner({ video, onStatus, onSharp, onCapture, onState = (
     } finally {
       ref = prev;            // image de référence : la lettre actuellement sous la caméra
       tracker.lock();        // on ne relit pas la même lettre ; réarmement quand elle change
+      if (stream) video.play().catch(() => {});
       busy = false;
     }
   }
