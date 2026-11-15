@@ -46,7 +46,8 @@ section{display:none;padding:8px 16px}section.on{display:block}
 
 /* Caméra */
 .cam{position:relative;background:#0c0c0c;border-radius:20px;overflow:hidden;aspect-ratio:16/9;width:100%}
-.cam.live{aspect-ratio:3/4;max-height:56vh}
+.cam.live{aspect-ratio:var(--cam-ar,3/4);max-height:62vh}
+.cam.live video{object-fit:contain;background:#000}
 .cam:not(.live) .ov,.cam:not(.live) .meter{display:none!important}
 .cam.live video{cursor:pointer}
 /* Caméra éteinte : la vidéo vide est masquée (la WebView Android y dessine sinon un gros symbole « lecture »). */

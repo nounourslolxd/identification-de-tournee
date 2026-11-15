@@ -4,7 +4,20 @@ export const W = 320, H = 240;
 export const SHARP = 45;   // écart-type du laplacien minimal pour une image nette
 export const MOVE = 10;    // différence moyenne (0–255) au-delà de laquelle l'image « bouge »
 export const REARM = 18;   // écart avec l'image capturée au-delà duquel on considère la lettre retirée
-export const STABLE_TICKS = 3;
+export const STABLE_TICKS = 2;   // 2 images stables à 150 ms d'intervalle : lecture ~0,3 s après que la lettre est posée
+
+/**
+ * Caméra principale (objectif 1x) parmi les caméras arrière : sur un téléphone à plusieurs objectifs, le navigateur
+ * peut ouvrir le téléobjectif. Android les nomme « camera2 0, facing back », « camera2 2, facing back »… : la principale
+ * a le plus petit numéro. Les objectifs nommés téléobjectif, ultra grand-angle, macro ou profondeur sont écartés.
+ */
+export function pickMainBack(devices) {
+  const back = devices.filter(d => d.kind === 'videoinput' && /back|rear|arri[eè]re|environment/i.test(d.label || ''));
+  const plain = back.filter(d => !/tele|ultra|macro|depth|zoom|wide/i.test(d.label));
+  const list = plain.length ? plain : back;
+  const num = d => +((d.label.match(/(\d+)\s*,/) || d.label.match(/(\d+)/) || [])[1] ?? 99);
+  return list.sort((a, b) => num(a) - num(b))[0] ?? null;
+}
 
 /** RGBA → niveaux de gris (Float32Array). */
 export function toGray(rgba, w = W, h = H) {
@@ -75,14 +88,25 @@ export function createScanner({ video, onStatus, onSharp, onCapture, onState = (
 
   async function start() {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('Caméra non disponible (HTTPS requis).');
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false,
-    });
+    const size = { width: { ideal: 1920 }, height: { ideal: 1080 } };
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, ...size }, audio: false });
+    // Objectif principal (1x) plutôt que le téléobjectif, puis zoom 1x et mise au point continue si possible.
+    try {
+      const main = pickMainBack(await navigator.mediaDevices.enumerateDevices());
+      if (main && main.deviceId !== stream.getVideoTracks()[0].getSettings().deviceId) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: main.deviceId }, ...size }, audio: false });
+      }
+      const tr = stream.getVideoTracks()[0], caps = tr.getCapabilities?.() ?? {}, adv = {};
+      if (caps.zoom) adv.zoom = Math.max(caps.zoom.min, Math.min(1, caps.zoom.max));
+      if (caps.focusMode?.includes('continuous')) adv.focusMode = 'continuous';
+      if (Object.keys(adv).length) await tr.applyConstraints({ advanced: [adv] }).catch(() => {});
+    } catch { /* on garde la caméra ouverte par défaut */ }
     video.srcObject = stream;
     await video.play();
     prev = ref = null; tracker.reset();
     onStatus('Présentez une lettre'); onState({ state: 'search', progress: 0 });
-    timer = setInterval(tick, 350);
+    timer = setInterval(tick, 150);
     // L'écran reste allumé pendant le tri (si le navigateur le permet).
     navigator.wakeLock?.request('screen').then(w => { wake = w; }).catch(() => {});
   }

@@ -43,11 +43,11 @@ test('tracker : capture après N images nettes et stables consécutives', () => 
 });
 test('tracker : une image floue ou qui bouge remet le compteur à zéro', () => {
   const t = createTracker(), ok = { sharp: SHARP + 10, move: 0, fromRef: 0 };
-  t.step(ok); t.step(ok);
+  for (let i = 1; i < STABLE_TICKS; i++) t.step(ok);
   assert.equal(t.step({ sharp: SHARP - 1, move: 0, fromRef: 0 }).status, 'Image floue');
-  t.step(ok); t.step(ok);
+  for (let i = 1; i < STABLE_TICKS; i++) t.step(ok);
   assert.equal(t.step({ sharp: SHARP + 10, move: MOVE, fromRef: 0 }).status, 'Ne bougez pas');
-  t.step(ok); t.step(ok);
+  for (let i = 1; i < STABLE_TICKS; i++) t.step(ok);
   assert.equal(t.step(ok).action, 'capture');
 });
 test('tracker : verrouillé après capture, réarmé quand l’image s’écarte de la référence', () => {
