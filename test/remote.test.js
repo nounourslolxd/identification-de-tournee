@@ -129,7 +129,7 @@ test('saveTable : appelle replace_table avec le bon format', async () => {
   await createRemote(client).saveTable([{ cp: '5500', street: 'rue a', from_n: 1, to_n: 5, tournee: '1', source: 'table', id: 'zzz' }], [{ cp: '5500', city: 'Dinant' }]);
   const rpc = log.find(l => l[0] === 'rpc');
   assert.equal(rpc[1], 'replace_table');
-  assert.deepEqual(rpc[2].p_ranges, [{ cp: '5500', city: '', street: 'rue a', from_n: 1, to_n: 5, tournee: '1' }]);
+  assert.deepEqual(rpc[2].p_ranges, [{ cp: '5500', city: '', street: 'rue a', from_n: 1, to_n: 5, parity: '', tournee: '1' }]);
 });
 test('saveTable : non-admin → message clair', async () => {
   const { client } = fake({ rpcResult: { error: { code: '42501', message: 'x' } } });

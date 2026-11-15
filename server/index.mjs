@@ -1,5 +1,6 @@
 // Serveur de lecture d'adresses (manuscrites et imprimées) — à héberger soi-même.
 //   POST /read   corps = image JPEG/PNG/WebP, en-tête Authorization: Bearer <jeton Supabase du facteur>
+//   POST /table  corps = morceau d'une photo du tableau de tri (une colonne) → lignes « code postal, tournée, rue, plages »
 //   GET  /health état du modèle et du répertoire
 // Les images sont traitées en mémoire puis oubliées : rien n'est écrit sur disque ni dans les journaux.
 import http from 'node:http';
@@ -10,6 +11,7 @@ import { createHash } from 'node:crypto';
 import { createGazetteer, loadGazetteer } from './gazetteer.mjs';
 import { createVision } from './vision.mjs';
 import { readLetter } from './pipeline.mjs';
+import { TABLE_PROMPT, parseModelRows, resolveRows } from './board.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -141,15 +143,26 @@ const server = http.createServer(async (req, res) => {
       const model = await vision.ping().catch(() => false);
       return send(res, model ? 200 : 503, { ok: model, model: cfg.visionModel, gazetteer: gaz.size() });
     }
-    if (req.method !== 'POST' || path !== '/read') return send(res, 404, { error: 'Introuvable' });
+    const table = path === '/table';
+    if (req.method !== 'POST' || (path !== '/read' && !table)) return send(res, 404, { error: 'Introuvable' });
 
     const user = await authenticate(req);
     if (!user) return send(res, 401, { error: 'Connexion requise' });
-    if (!allowed(user.id)) return send(res, 429, { error: 'Trop de lectures, patientez une minute' });
+    if (!allowed(table ? user.id + ':tableau' : user.id)) return send(res, 429, { error: 'Trop de lectures, patientez une minute' });
 
     const image = await readBody(req), mime = sniff(image);
     if (!mime) return send(res, 415, { error: 'Image JPEG, PNG ou WebP attendue' });
     await refreshTable(user.token);
+
+    if (table) {
+      // Un morceau de tableau de tri (une colonne, ~28 lignes) → lignes vérifiées. `zone` : codes postaux déjà rencontrés.
+      const zone = (new URL(req.url, 'http://x').searchParams.get('zone') || '').split(',').filter(s => /^\d{4}$/.test(s)).slice(0, 60);
+      const t0 = Date.now();
+      const { text, tokens } = await vision.transcribe(image, mime, TABLE_PROMPT, 1000);   // ~28 lignes ≈ 550 jetons
+      const rows = resolveRows(parseModelRows(text), gaz, zone);
+      console.log(`tableau ${Date.now() - t0} ms · jetons ${tokens.in}→${tokens.out} · ${rows.length} lignes, ${rows.filter(r => r.check).length} à vérifier`);
+      return send(res, 200, { rows });
+    }
 
     const out = await readLetter({ image, mime, vision, gaz, secondPass: cfg.secondPass });
     const { timing: t } = out;

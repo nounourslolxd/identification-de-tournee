@@ -48,7 +48,7 @@ test('sim : tolérant à une faute d’OCR, sévère sur autre chose', () => {
 test('parseTable : lit les lignes valides', () => {
   assert.equal(ranges.length, 3);
   assert.deepEqual(ranges[2], {
-    cp: '5500', city: '', street: "rue de l'oublie", from_n: 1, to_n: 5, tournee: '1', source: 'table',
+    cp: '5500', city: '', street: "rue de l'oublie", from_n: 1, to_n: 5, parity: '', tournee: '1', source: 'table',
   });
 });
 test('parseTable : variantes de séparateurs et lignes parasites', () => {
@@ -139,12 +139,13 @@ test('match : bornes de plage incluses', () => {
   assert.equal(match(parseAddr("5 rue de l'oublie 5500 Dinant"), seul).n, 1);
   assert.equal(match(parseAddr("6 rue de l'oublie 5500 Dinant"), seul).n, 0);
 });
-// LIMITE CONNUE de la formule 50/25/25 (voir README) : une rue voisine qui accepte le numéro
-// peut l'emporter sur la bonne rue dont la plage ne contient pas le numéro.
-test('match [limite connue] : n° hors plage → rattaché à une rue voisine à 80 %', () => {
+// Le numéro ne compte que si la rue ressemble : une rue voisine qui accepte le numéro ne l'emporte plus
+// sur la bonne rue dont la plage ne contient pas le numéro (ancienne limite de la formule 50/25/25).
+test('match : n° hors plage → reste sur la bonne rue, en orange', () => {
   const r = match(parseAddr("9 rue de l'oublie 5500 Dinant"), ranges);
-  assert.equal(r.e.tournee, '13');
-  assert.ok(Math.abs(r.score - 0.8) < 0.01);
+  assert.equal(r.e.tournee, '1');
+  assert.equal(r.n, 0);
+  assert.ok(Math.abs(r.score - 0.75) < 0.01);
   assert.equal(clsGlobal(confidence(r)), 'wa'); // orange, pas vert : le facteur est averti
 });
 test('match : rue inconnue → introuvable (rouge)', () => {

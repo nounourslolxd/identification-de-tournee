@@ -17,6 +17,7 @@ src/                     site statique (copié tel quel dans dist/)
   js/match.js            logique pure : norm, lev, sim, parseAddr, parseTable, match, recherche localité
   js/ocr.js              prétraitement d'image + Tesseract.js (auto-hébergé)
   js/reader.js           lecture via le serveur de vision (manuscrit), repli sur Tesseract
+  js/board-scan.js       photo du tableau de tri → colonnes → morceaux à lire (voir docs/TABLEAU.md)
   js/scanner.js          netteté, stabilité, auto-capture, réarmement ; contrôleur caméra
   js/store.js            état + cache local (hors ligne)
   js/backend.js          couche de données : mode local ou partagé

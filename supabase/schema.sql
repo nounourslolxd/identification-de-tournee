@@ -54,8 +54,11 @@ create table if not exists public.ranges (
   created_at timestamptz not null default now(),
   check (to_n >= from_n)
 );
+-- Parité de la plage : '' = tous les numéros, 'even' = pairs, 'odd' = impairs (« 2-146 / 1-147 » sur le tableau de tri).
+alter table public.ranges add column if not exists parity text not null default '' check (parity in ('', 'even', 'odd'));
 create index if not exists ranges_cp_idx on public.ranges (cp);
-create unique index if not exists ranges_unique_idx on public.ranges (source, cp, lower(street), from_n, to_n, tournee);
+drop index if exists public.ranges_unique_idx;
+create unique index if not exists ranges_unique_idx on public.ranges (source, cp, lower(street), from_n, to_n, parity, tournee);
 
 alter table public.ranges enable row level security;
 
@@ -120,10 +123,10 @@ begin
   end if;
 
   delete from public.ranges where source = 'table';
-  insert into public.ranges (cp, city, street, from_n, to_n, tournee, source, created_by)
-    select r.cp, coalesce(r.city, ''), r.street, r.from_n, r.to_n, r.tournee, 'table', (select auth.uid())
+  insert into public.ranges (cp, city, street, from_n, to_n, parity, tournee, source, created_by)
+    select r.cp, coalesce(r.city, ''), r.street, r.from_n, r.to_n, coalesce(r.parity, ''), r.tournee, 'table', (select auth.uid())
     from jsonb_to_recordset(coalesce(p_ranges, '[]'::jsonb))
-      as r(cp text, city text, street text, from_n int, to_n int, tournee text)
+      as r(cp text, city text, street text, from_n int, to_n int, parity text, tournee text)
     on conflict do nothing;
 
   delete from public.localities where true;

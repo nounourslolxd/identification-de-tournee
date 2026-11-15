@@ -10,7 +10,7 @@ export function renderSearch() {
   const res = searchLocality(q, ranges, fullIndex(() => localityIndex(state.localities, ranges)));
   if (!res.length) { out.innerHTML = '<p class="empty">Aucune tournée pour cette localité.</p>'; return; }
   out.innerHTML = res.map(t => `<div class="tour"><h4>Tournée <b>${esc(t.tournee)}</b></h4>` +
-    t.streets.map(s => `<div class="st"><span>${esc(s.key)}</span><small>n° ${s.ranges.map(fmtRange).join(', ')}</small></div>`).join('') + '</div>').join('');
+    t.streets.map(s => `<div class="st"><span>${esc(s.key)}</span><small>${s.ranges.some(r => r[0] > 0 || r[1] < 99999) ? 'n° ' : ''}${s.ranges.map(fmtRange).join(', ')}</small></div>`).join('') + '</div>').join('');
 }
 
 export function initSearch() {

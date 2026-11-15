@@ -67,18 +67,28 @@
 
 <section id="tb">
   <h2>Tableau des tournées</h2>
-  <p class="hint">Une ligne par plage, par exemple <code>5500 rue de l'oublie de 1 a 5 -- tournée 1</code></p>
-  <textarea id="tt" aria-label="Tableau des tournées" spellcheck="false"></textarea>
-  <input type="file" id="tf" accept="image/*" capture="environment" hidden>
+  <p class="hint">Photographiez le tableau de tri du bureau, bien de face. Chaque ligne est lue et reliée à sa tournée.</p>
+  <input type="file" id="tf" accept="image/*" multiple hidden>
   <div class="actions" id="tadmin">
-    <button class="btn primary" id="tsave">Enregistrer</button>
-    <button class="btn" id="tph"><svg><use href="#i-img"/></svg> Depuis une photo</button>
+    <button class="btn primary" id="tph"><svg><use href="#i-img"/></svg> Importer une photo du tableau</button>
+  </div>
+  <div id="tprog" class="prog" hidden>
+    <div class="prog-bar"><i id="tbar"></i></div>
+    <div class="prog-row"><span id="tstep"></span><button class="btn sm ghost" id="tstop" type="button">Arrêter</button></div>
   </div>
   <div id="tmsg" class="hint" role="status"></div>
+  <div id="tsum" class="tsum"></div>
 
-  <h3>Localités desservies</h3>
-  <p class="hint">Une par ligne, par exemple <code>5500 Dinant</code></p>
-  <textarea id="tl" class="small" aria-label="Localités" spellcheck="false"></textarea>
+  <details class="fold" id="tedit">
+    <summary>Voir et corriger les lignes lues</summary>
+    <p class="hint">Une ligne par rue : <code>5620 009 Rue d'Anthée 2-146 / 1-147</code> (code postal, tournée, rue, numéros pairs / impairs).
+      Les lignes à vérifier commencent par <code>?</code> : corrigez-les puis retirez le <code>?</code>.</p>
+    <textarea id="tt" aria-label="Lignes du tableau" spellcheck="false"></textarea>
+    <div class="actions" id="tadmin2">
+      <button class="btn primary" id="tsave">Enregistrer</button>
+      <button class="btn ghost danger" id="tclear" type="button">Vider le tableau</button>
+    </div>
+  </details>
 
   <h3>Appris par les facteurs</h3>
   <div id="learned" class="list"></div>

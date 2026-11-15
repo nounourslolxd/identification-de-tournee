@@ -124,6 +124,19 @@ export function createVision({ url, model, apiKey = '', timeoutMs = 60000, fetch
       const i = parseInt(json?.choix, 10);
       return Number.isFinite(i) && i >= 1 && i <= candidates.length ? i - 1 : -1;
     },
+    /** Transcription libre d'une image (morceau de tableau de tri). Retourne { text, tokens }. */
+    transcribe: async (image, mime, prompt, maxTokens = 1500) => {
+      const res = await post({
+        model, temperature: 0, max_tokens: maxTokens,
+        messages: [{ role: 'user', content: [
+          { type: 'image_url', image_url: { url: `data:${mime};base64,${image.toString('base64')}` } },
+          { type: 'text', text: prompt },
+        ] }],
+      });
+      if (!res.ok) throw new Error(`Modèle de vision : HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
+      const data = await res.json();
+      return { text: data?.choices?.[0]?.message?.content ?? '', tokens: { in: data?.usage?.prompt_tokens ?? 0, out: data?.usage?.completion_tokens ?? 0 } };
+    },
     /** Charge le modèle en mémoire (appel minuscule, sans image). À répéter pour qu'il y reste. Retourne la durée en ms. */
     warm: async () => {
       const t0 = Date.now();

@@ -5,3 +5,5 @@ src/js/config.js
 .env
 server/data/
 .DS_Store
+.claude/
+android/

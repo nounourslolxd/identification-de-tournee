@@ -68,7 +68,7 @@ export function createRemote(client) {
 
   async function saveTable(rows, localities) {
     const { error } = await client.rpc('replace_table', {
-      p_ranges: rows.map(({ cp, city, street, from_n, to_n, tournee }) => ({ cp, city: city || '', street, from_n, to_n, tournee })),
+      p_ranges: rows.map(({ cp, city, street, from_n, to_n, parity, tournee }) => ({ cp, city: city || '', street, from_n, to_n, parity: parity || '', tournee })),
       p_localities: localities,
     });
     if (error) throw new Error(error.code === '42501' ? 'Réservé aux administrateurs.' : error.message);
