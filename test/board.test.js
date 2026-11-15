@@ -96,3 +96,26 @@ test('fmtRange : parité et rue entière', () => {
   assert.equal(fmtRange([1, 147, 'odd']), '1–147 impairs');
   assert.equal(fmtRange(WHOLE), 'toute la rue');
 });
+
+test('searchStreets : une rue, par son nom, avec une faute, ou avec son code postal', async () => {
+  const { searchStreets } = await import('../src/js/match.js');
+  const r = parseTable(`5600 002 Rue Lavaux
+5600 003 Gueule-du-Loup
+5600 512 Rue de Namur 2-40 / 1-39
+5600 513 Rue de Namur 42-90 / 41-89
+5620 007 Rue de Namur
+5640 526 Rue Albert Ier 2-126 / 1-123`);
+  const s = q => searchStreets(q, r).map(x => x.cp + ' ' + x.street);
+  assert.deepEqual(s('rue de namur'), ['5600 Rue de Namur', '5620 Rue de Namur']);
+  assert.deepEqual(s('namur'), ['5600 Rue de Namur', '5620 Rue de Namur']);
+  assert.deepEqual(s('namur 5620'), ['5620 Rue de Namur']);
+  assert.deepEqual(s('gueule du loup'), ['5600 Gueule-du-Loup']);
+  assert.deepEqual(s('albert 1er'), ['5640 Rue Albert Ier']);             // « 1er » au lieu de « Ier » : trouvée quand même
+  assert.deepEqual(s('albert'), ['5640 Rue Albert Ier']);
+  assert.deepEqual(s('lavau'), ['5600 Rue Lavaux']);                       // début du nom
+  assert.deepEqual(s('lavaus'), ['5600 Rue Lavaux']);                      // faute de frappe
+  assert.deepEqual(s('zz'), []);
+  const namur = searchStreets('namur 5600', r)[0];
+  assert.deepEqual(namur.tours.map(t => t.tournee), ['512', '513']);       // plusieurs tournées dans la même rue
+  assert.deepEqual(namur.tours[0].ranges, [[2, 40, 'even'], [1, 39, 'odd']]);
+});

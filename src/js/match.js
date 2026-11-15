@@ -289,6 +289,41 @@ export function searchLocality(q, ranges, index) {
     .map(t => ({ tournee: t, streets: [...by.get(t)].map(([key, r]) => ({ key, ranges: r })) }));
 }
 
+const STREET_TYPE = /^(rue|ruelle|avenue|av|place|allee|chemin|route|quartier|boulevard|bd|impasse|chaussee|clos|sentier|cite|residence|tienne|square|quai|dreve|voie|cour|passage|straat|laan|steenweg|weg|plein)\s+/;
+const streetCore = s => s.replace(STREET_TYPE, '');
+
+/**
+ * Recherche de rues dans le tableau : « gueule du loup », « rue de namur », « namur 5600 », avec une faute légère.
+ * Retourne [{ cp, street, score, tours: [{ tournee, ranges: [[from, to, parité?], …] }] }], les meilleures d'abord.
+ */
+export function searchStreets(q, ranges, limit = 30) {
+  const cp = String(q ?? '').match(/\b\d{4}\b/)?.[0] ?? '';
+  const nq = norm(String(q ?? '').replace(/\b\d{4}\b/, ''));
+  if (nq.length < 3 || !streetCore(nq + ' ').trim()) return [];   // « rue » seul : trop vague
+  const cq = streetCore(nq), byStreet = new Map();
+  for (const r of ranges) {
+    if (cp && r.cp !== cp) continue;
+    const key = r.cp + '|' + r.street;
+    let hit = byStreet.get(key);
+    if (!hit) {
+      const ns = norm(r.street), cs = streetCore(ns);
+      // Nom contenu dans la rue (« namur » dans « rue de namur »), ou ressemblant (faute de frappe), avec ou sans le type.
+      const score = ns === nq || cs === cq ? 1
+        : ns.includes(nq) || (cq.length >= 3 && cs.includes(cq)) ? 0.9
+          : Math.max(simNorm(ns, nq), simNorm(cs, cq) * 0.97);
+      if (score < 0.75) { byStreet.set(key, null); continue; }
+      byStreet.set(key, hit = { cp: r.cp, street: r.street, score, tours: new Map() });
+    }
+    if (!hit) continue;
+    if (!hit.tours.has(r.tournee)) hit.tours.set(r.tournee, []);
+    hit.tours.get(r.tournee).push(r.parity ? [r.from_n, r.to_n, r.parity] : [r.from_n, r.to_n]);
+  }
+  return [...byStreet.values()].filter(Boolean)
+    .sort((a, b) => b.score - a.score || a.street.localeCompare(b.street, 'fr') || a.cp.localeCompare(b.cp))
+    .slice(0, limit)
+    .map(h => ({ ...h, tours: [...h.tours].sort((a, b) => a[0].localeCompare(b[0], 'fr', { numeric: true })).map(([tournee, rs]) => ({ tournee, ranges: rs })) }));
+}
+
 /** [from, to, parité?] → « 3 », « 1–5 », « 2–146 pairs », « toute la rue ». */
 export const fmtRange = ([a, b, parity]) =>
   a <= WHOLE[0] && b >= WHOLE[1] ? 'toute la rue'

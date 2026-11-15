@@ -173,6 +173,9 @@ details[open]>summary::before{transform:rotate(90deg)}
 .tour{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:14px 16px;margin:12px 0}
 .tour h4{margin:0 0 6px;font-size:13px;color:var(--mu);font-weight:600;text-transform:uppercase;letter-spacing:.06em}
 .tour h4 b{color:var(--tx);font-size:22px;letter-spacing:-.01em;text-transform:none;margin-left:4px}
+.tour h4.street-h{display:flex;flex-direction:column;gap:2px;text-transform:none;letter-spacing:0}
+.tour h4.street-h b{margin:0;font-size:18px}
+#qr h3{margin:18px 0 6px}
 .tour .st{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:15px}
 .tour .st:first-of-type{border-top:0}
 .tour .st small{color:var(--mu);white-space:nowrap}
