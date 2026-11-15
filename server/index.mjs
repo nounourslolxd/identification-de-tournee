@@ -149,6 +149,8 @@ function cors(req, res) {
     res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Access-Code');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Max-Age', '600');
+    // Chrome exige cet accord quand un site public appelle une adresse privée (PC joint par son adresse Tailscale).
+    if (req.headers['access-control-request-private-network']) res.setHeader('Access-Control-Allow-Private-Network', 'true');
   }
 }
 const send = (res, code, body) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); };
