@@ -69,10 +69,13 @@ export function createGazetteer() {
     const out = [];
     if (!norm(city)) return out;
     for (const [cp, set] of names) {
-      const s = Math.max(...[...set].map(n => sim(n, city)));
-      if (s >= 0.8) out.push({ cp, s });
+      const c = norm(city);
+      const s = Math.max(...[...set].map(n => (norm(n) === c ? 1 : sim(n, city) >= 0.85 ? sim(n, city) : c.length >= 4 && norm(n).startsWith(c) ? 0.84 : 0)));
+      if (s >= 0.84) out.push({ cp, s });
     }
-    return out.sort((a, b) => b.s - a.s).map(x => x.cp);
+    // Un nom identique l'emporte sur les noms qui commencent pareil (« Gent » n'est pas « Gentbrugge »).
+    const exact = out.filter(x => x.s === 1);
+    return (exact.length ? exact : out).sort((a, b) => b.s - a.s).map(x => x.cp);
   }
 
   /** Meilleures rues pour `street` dans les codes postaux donnés (tous si vide). Le tableau prime à score égal. */
@@ -107,7 +110,10 @@ export function createGazetteer() {
     localities: [...names].flatMap(([cp, set]) => [...set].map(city => ({ cp, city }))),
   });
 
-  return { addStreet, addLocality, setTable, hasCp, citiesOf, cpsForCity, streetCandidates, size, toJSON, cps, servedCps: () => new Set(served) };
+  /** Rues connues d'un code postal avec leur localité (village) : [{ street, city }]. */
+  const streetsIn = cp => [...(streets.get(cp)?.values() ?? [])].map(e => ({ street: e.street, city: e.city }));
+
+  return { addStreet, addLocality, setTable, streetsIn, hasCp, citiesOf, cpsForCity, streetCandidates, size, toJSON, cps, servedCps: () => new Set(served) };
 }
 
 /** Recharge un répertoire depuis l'objet produit par toJSON(). */
@@ -131,6 +137,8 @@ export function correctAddress(a, gaz) {
   const addr = { num: a.num ?? null, street: a.street ?? '', cp: a.cp ?? '', city: a.city ?? '' };
   const corrections = [];
   let ambiguous = null, numberInRange = null;
+  // Adresse à l'étranger : aucune base belge ne s'applique, on ne « corrige » rien.
+  if (a.foreign) return { addr, corrections: ['Adresse à l\'étranger (code postal ' + addr.cp + ') : pas de tournée'], ambiguous: null, numberInRange: null, foreign: true };
 
   // 1. Code postal : inconnu ou absent → déduit de la localité si elle est univoque ; sinon la rue
   //    sera cherchée seulement dans les codes postaux de cette localité (Bruxelles, Namur, Gent…).
@@ -161,8 +169,8 @@ export function correctAddress(a, gaz) {
       else if (!pick && !gaz.hasCp(addr.cp)) corrections.push(`Rue présente dans plusieurs codes postaux (${twins.map(x => x.cp).join(', ')}) : code postal à vérifier`);
       const ref = pick ?? b;
       if (addr.num != null && ref.min != null) numberInRange = addr.num >= ref.min && addr.num <= ref.max;
-    } else if (b && b.score >= 0.5) {
-      ambiguous = c.filter(x => x.score >= 0.5);
+    } else if (b && b.score >= 0.62) {
+      ambiguous = c.filter(x => x.score >= 0.62);
     }
   }
 

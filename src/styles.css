@@ -186,6 +186,9 @@ details[open]>summary::before{transform:rotate(90deg)}
 .tsum .empty{display:block;padding:8px 0}
 .btn svg{width:20px;height:20px}
 
+.chk-item .icon-btn{width:40px;height:40px;font-size:18px;border:1px solid var(--line)}
+.chk-item .icon-btn.ok{color:var(--ok)}
+#tcheck h3{margin:16px 0 4px}
 .head-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .toggle{display:inline-flex;gap:8px;align-items:center;font-size:14px;color:var(--mu);min-height:44px}
 .toggle input{width:20px;height:20px;accent-color:var(--ac)}

@@ -2,6 +2,7 @@
 // Rien de secret n'est écrit dans le site ni dans l'APK : chaque téléphone est réglé une fois, à la main.
 import { $ } from './util.js';
 import { readerSettings, saveReaderSettings, testReaderServer, hasReaderServer } from './reader.js';
+import { syncBoardFromServer } from './ui-table.js';
 
 function showState() {
   const b = $('#gear');
@@ -29,6 +30,7 @@ export function initSettings() {
     const r = await testReaderServer();
     msg.textContent = r.ok ? `Connecté au serveur (modèle ${r.model}). Manuscrit et import du tableau disponibles.` : r.error;
     msg.className = 'hint ' + (r.ok ? 'ok' : 'ko');
+    if (r.ok) syncBoardFromServer();                  // récupère le tableau gardé sur le PC (réinstallation, autre téléphone)
   };
   showState();
 }

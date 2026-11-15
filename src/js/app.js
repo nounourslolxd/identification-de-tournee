@@ -9,6 +9,7 @@ import { initHistory } from './ui-history.js';
 import { initAuth, promptIfSignedOut } from './ui-auth.js';
 import { setReaderServer } from './reader.js';
 import { initSettings } from './ui-settings.js';
+import { syncBoardFromServer } from './ui-table.js';
 import { loadPostcodes, invalidateIndex } from './postcodes.js';
 
 on('ranges', invalidateIndex);          // avant les écrans : ils relisent l'index dans le même événement
@@ -45,3 +46,5 @@ if (shared) {
 } else {
   maybePrefetch();
 }
+// Tableau gardé sur le serveur : récupéré s'il est plus récent, ou si ce téléphone n'en a pas (réinstallation).
+syncBoardFromServer();

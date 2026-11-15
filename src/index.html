@@ -80,11 +80,12 @@
   </div>
   <div id="tmsg" class="hint" role="status"></div>
   <div id="tsum" class="tsum"></div>
+  <div id="tcheck"></div>
 
   <details class="fold" id="tedit">
     <summary>Voir et corriger les lignes lues</summary>
     <p class="hint">Une ligne par rue : <code>5620 009 Rue d'Anthée 2-146 / 1-147</code> (code postal, tournée, rue, numéros pairs / impairs).
-      Les lignes à vérifier commencent par <code>?</code> : corrigez-les puis retirez le <code>?</code>.</p>
+      Les lignes à vérifier commencent par <code>?</code> (plus simple : la liste ci-dessus, avec ✓ et ✎).</p>
     <textarea id="tt" aria-label="Lignes du tableau" spellcheck="false"></textarea>
     <div class="actions" id="tadmin2">
       <button class="btn primary" id="tsave">Enregistrer</button>
@@ -93,6 +94,7 @@
   </details>
 
   <h3>Appris par les facteurs</h3>
+  <p class="hint">Le tableau est gardé sur ce téléphone et, si le serveur est réglé, sur votre PC : il revient tout seul après une réinstallation.</p>
   <div id="learned" class="list"></div>
 </section>
 

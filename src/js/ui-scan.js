@@ -14,7 +14,8 @@ export function viewHtml(a, r) {
   const ranges = effectiveRanges();
   const city = checkCity(a.city, a.cp, fullIndex(() => localityIndex(state.localities, ranges)));
   const streetFix = found && r.s < 0.92 ? r.e.street : null;
-  return `<div class="res-t"><span class="lbl">Tournée</span>${found ? `<b class="${g}">${esc(r.e.tournee)}</b>` : '<b class="none ko">introuvable</b>'}
+  const abroad = a.foreign || /^\d{5}$/.test(a.cp);
+  return `<div class="res-t"><span class="lbl">Tournée</span>${found ? `<b class="${g}">${esc(r.e.tournee)}</b>` : abroad ? '<b class="none wa">étranger</b>' : '<b class="none ko">introuvable</b>'}
     ${found ? `<span class="pct ${g}">${sc} %</span>` : ''}</div>
   <div class="chips">${chip('N°', a.num, found && r.n ? 'ok' : 'ko')}${chip('Rue', a.street, found ? cls(r.s) : 'ko', streetFix)}${chip('CP', a.cp, found && r.p ? 'ok' : 'ko')}${chip('Ville', a.city, city.cls, city.cls === 'wa' ? city.best : null)}</div>`;
 }
@@ -33,7 +34,7 @@ export function readInfoHtml(info = {}) {
 }
 
 /** Adresse renvoyée par le serveur → forme de parseAddr. */
-const fromServer = d => ({ num: d.num ?? null, street: d.street || '', cp: d.cp || '', city: d.city || '', raw: d.raw || '' });
+const fromServer = d => ({ num: d.num ?? null, street: d.street || '', cp: d.cp || '', city: d.city || '', raw: d.raw || '', foreign: !!d.foreign });
 
 export const learnForm = id => `<div class="row learn"><input placeholder="Bonne tournée ?" data-l="${id}" aria-label="Bonne tournée" inputmode="numeric"><button class="btn sm" data-learn="${id}">Apprendre</button></div>`;
 
@@ -64,6 +65,7 @@ export function process(input, thumb = '', info = {}) {
       info = { ...info, corrections: [...(info.corrections ?? []).filter(c => !c.startsWith('Rue')), 'Correction de rue annulée : la lecture correspond mieux au tableau'] };
     }
   }
+  if (a.foreign || /^\d{5}$/.test(a.cp)) r = null;                 // adresse à l'étranger : aucune tournée
   const found = isFound(r), score = confidence(r);
   const it = { id: Date.now(), t: new Date().toLocaleTimeString('fr-BE'), a, tournee: found ? r.e.tournee : null, score, thumb, raw: a.raw, hand: !!info.handwritten };
   setHist([it, ...state.hist]);

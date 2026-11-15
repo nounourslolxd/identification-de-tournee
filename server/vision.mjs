@@ -69,11 +69,14 @@ export function fixPostcode(s) {
 export function toAddress(j) {
   const str = v => (v == null ? '' : String(v).trim());
   const n = parseInt(str(j?.n ?? j?.numero).match(/\d+/)?.[0] ?? '', 10);
+  const rawCp = str(j?.cp).replace(/^\s*[A-Z]{1,2}\s*-\s*/i, '').replace(/\s+/g, '');
+  const foreign = /^\d{5}$/.test(rawCp);        // 08170 Fumay (France) : pas une adresse belge
   return {
     num: Number.isFinite(n) ? n : null,
     box: str(j?.b ?? j?.boite) || null,
     street: str(j?.r ?? j?.rue),
-    cp: fixPostcode(str(j?.cp)),
+    cp: foreign ? rawCp : fixPostcode(str(j?.cp)),
+    foreign,
     city: str(j?.v ?? j?.ville),
     handwritten: (j?.m ?? j?.manuscrit) === true,
   };

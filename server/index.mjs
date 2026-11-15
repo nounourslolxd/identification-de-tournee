@@ -3,10 +3,12 @@
 //   POST /table  corps = morceau d'une photo du tableau de tri (une colonne) → lignes « code postal, tournée, rue, plages »
 //   GET  /health état du modèle et du répertoire
 //   GET  /auth   vérifie le code d'accès (réglages de l'application)
+//   GET|PUT /board   tableau des tournées conservé sur ce PC (server/data/board.json)
+//   GET  /streets?cps=…  rues de ces codes postaux avec leur village
 // Accès : en-tête X-Access-Code (code partagé, ACCESS_CODE) ou jeton Supabase du facteur.
 // Les images sont traitées en mémoire puis oubliées : rien n'est écrit sur disque ni dans les journaux.
 import http from 'node:http';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, timingSafeEqual } from 'node:crypto';
@@ -14,6 +16,7 @@ import { createGazetteer, loadGazetteer } from './gazetteer.mjs';
 import { createVision } from './vision.mjs';
 import { readLetter } from './pipeline.mjs';
 import { TABLE_PROMPT, parseModelRows, resolveRows } from './board.mjs';
+import { parseTable } from '../src/js/match.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -66,6 +69,25 @@ if (existsSync(pcFile)) {
   const pc = JSON.parse(readFileSync(pcFile, 'utf8'));
   for (const [cp, names] of Object.entries(pc)) for (const n of names) gaz.addLocality(cp, n);
   console.log(`Codes postaux belges : ${Object.keys(pc).length}`);
+}
+
+/* ----- tableau des tournées conservé sur ce PC -----
+   Les téléphones y enregistrent leur tableau : il revient tout seul après une réinstallation de l'application,
+   il est le même sur tous les téléphones, et il sert ici à corriger les lectures (rues et codes postaux desservis). */
+const boardFile = join(here, 'data', 'board.json');
+let board = existsSync(boardFile) ? JSON.parse(readFileSync(boardFile, 'utf8')) : null;
+const applyBoard = () => {
+  if (!board?.text || cfg.supabaseUrl) return;          // avec Supabase, le tableau vient de Supabase
+  const ranges = parseTable(board.text);
+  gaz.setTable(ranges, []);
+  console.log(`Tableau des tournées : ${new Set(ranges.map(r => r.cp + r.street)).size} rues, mis à jour le ${new Date(board.updated).toLocaleString('fr-BE')}`);
+};
+function saveBoard(next) {
+  mkdirSync(dirname(boardFile), { recursive: true });
+  writeFileSync(boardFile + '.tmp', JSON.stringify(next));
+  renameSync(boardFile + '.tmp', boardFile);              // écriture atomique : jamais de fichier à moitié écrit
+  board = next;
+  applyBoard();
 }
 
 const vision = createVision({ url: cfg.visionUrl, model: cfg.visionModel, apiKey: cfg.visionKey, timeoutMs: cfg.visionTimeout });
@@ -147,7 +169,7 @@ function cors(req, res) {
     res.setHeader('Access-Control-Allow-Origin', o);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Access-Code');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
     res.setHeader('Access-Control-Max-Age', '600');
     // Chrome exige cet accord quand un site public appelle une adresse privée (PC joint par son adresse Tailscale).
     if (req.headers['access-control-request-private-network']) res.setHeader('Access-Control-Allow-Private-Network', 'true');
@@ -176,6 +198,24 @@ const server = http.createServer(async (req, res) => {
     // Vérifie l'adresse et le code saisis dans les réglages de l'application, sans rien lire.
     if (req.method === 'GET' && path === '/auth') {
       return (await authenticate(req)) ? send(res, 200, { ok: true, model: cfg.visionModel }) : send(res, 401, { error: 'Code d\'accès refusé' });
+    }
+    // Tableau des tournées : lecture (GET) et enregistrement (PUT) par les téléphones.
+    if (path === '/board' && (req.method === 'GET' || req.method === 'PUT')) {
+      if (!(await authenticate(req))) return send(res, 401, { error: 'Code d\'accès refusé' });
+      if (req.method === 'GET') return send(res, 200, board ?? { text: '', checks: {}, updated: 0 });
+      let next;
+      try { next = JSON.parse((await readBody(req)).toString('utf8')); } catch { return send(res, 400, { error: 'JSON attendu' }); }
+      if (typeof next?.text !== 'string' || next.text.length > 2_000_000) return send(res, 400, { error: 'Tableau invalide' });
+      const checks = next.checks && typeof next.checks === 'object' && !Array.isArray(next.checks) ? next.checks : {};
+      saveBoard({ text: next.text, checks, updated: Date.now() });
+      console.log(`tableau enregistré par un téléphone : ${next.text.split('\n').filter(Boolean).length} lignes`);
+      return send(res, 200, { ok: true, updated: board.updated });
+    }
+    // Rues des codes postaux demandés, avec leur village (recherche par localité, gardée sur le téléphone).
+    if (req.method === 'GET' && path === '/streets') {
+      if (!(await authenticate(req))) return send(res, 401, { error: 'Code d\'accès refusé' });
+      const cps = (new URL(req.url, 'http://x').searchParams.get('cps') || '').split(',').filter(s => /^\d{4}$/.test(s)).slice(0, 80);
+      return send(res, 200, { streets: cps.flatMap(cp => gaz.streetsIn(cp).map(s => ({ cp, ...s }))) });
     }
     const table = path === '/table';
     if (req.method !== 'POST' || (path !== '/read' && !table)) return send(res, 404, { error: 'Introuvable' });
@@ -214,6 +254,7 @@ server.listen(cfg.port, () => console.log(`Serveur de lecture sur :${cfg.port} �
 const warm = first => vision.warm()
   .then(ms => { if (first || ms > 2000) console.log(`Modèle ${first ? 'chargé' : 'rechargé'} en ${ms} ms`); })
   .catch(e => { if (first) console.warn('⚠ Modèle de vision injoignable pour le moment :', e.message); });
+applyBoard();
 if (cfg.keepAliveMin > 0) {
   warm(true);
   setInterval(() => warm(false), cfg.keepAliveMin * 60_000).unref();

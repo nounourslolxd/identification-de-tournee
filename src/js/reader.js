@@ -39,6 +39,26 @@ export async function testReaderServer() {
   } finally { clearTimeout(t); }
 }
 
+/** Appel JSON au serveur (tableau, rues). Lève une erreur lisible si le serveur ne répond pas. */
+async function call(path, { method = 'GET', body } = {}) {
+  if (!serverUrl) throw new Error('Serveur de lecture non réglé');
+  const ctrl = new AbortController(), t = setTimeout(() => ctrl.abort(), 30000);
+  try {
+    const res = await fetch(serverUrl + path, {
+      method, signal: ctrl.signal, body: body && JSON.stringify(body),
+      headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(await authHeaders()) },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
+    return data;
+  } finally { clearTimeout(t); }
+}
+/** Tableau conservé sur le serveur : { text, checks, updated }. */
+export const getBoard = () => call('/board');
+export const putBoard = board => call('/board', { method: 'PUT', body: board });
+/** Rues de ces codes postaux avec leur village : [{ cp, street, city }]. */
+export const getStreets = async cps => (await call('/streets?cps=' + cps.join(','))).streets ?? [];
+
 const MAX_SIDE = 1600, TIMEOUT = 45000;
 
 /** Canvas → JPEG réduit (côté max 1600 px) : assez pour l'écriture manuscrite, léger sur réseau mobile. */

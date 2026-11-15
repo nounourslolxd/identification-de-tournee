@@ -176,3 +176,15 @@ test('readLetter : renvoie le détail des temps et le texte lu', async () => {
   assert.deepEqual(r.timing.tokens, { in: 9, out: 3 });
   assert.ok(r.timing.read >= 0 && r.timing.choose === 0);
 });
+
+test('Fumay (France) : adresse à l\'étranger, rien n\'est « corrigé » vers une localité belge', async () => {
+  const g = gaz();
+  g.addLocality('4260', 'Fumal'); g.addStreet({ cp: '4260', street: 'Impasse du Pré Laurent', city: 'Fumal', num: 1, src: 'BeST' });
+  const a = toAddress({ n: 5, r: 'Impasse de la Tour', cp: '08170', v: 'Fumay' });
+  assert.deepEqual([a.cp, a.foreign], ['08170', true]);
+  const r = correctAddress(a, g);
+  assert.deepEqual([r.addr.cp, r.addr.city, r.addr.street, r.foreign], ['08170', 'Fumay', 'Impasse de la Tour', true]);
+  // Sans code postal : « Fumay » ne devient pas « Fumal » (lettre remplacée), mais « Dinan » devient bien Dinant (nom tronqué).
+  assert.equal(correctAddress({ num: 5, street: 'Impasse de la Tour', cp: '', city: 'Fumay' }, g).addr.cp, '');
+  assert.equal(correctAddress({ num: 5, street: 'Rue Grande', cp: '', city: 'Dinan' }, g).addr.cp, '5500');
+});

@@ -43,6 +43,7 @@ export async function readLetter({ image, mime, vision, gaz, secondPass = true }
     read: { num: read.num, street: read.street, cp: read.cp, city: read.city }, // lecture avant correction
     handwritten: read.handwritten,
     numberInRange,
+    foreign: !!read.foreign,
     corrections,
     candidates: ambiguous?.map(c => ({ street: c.street, cp: c.cp, city: c.city })) ?? [],
     model: vision.model,
