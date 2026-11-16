@@ -93,8 +93,10 @@ Pour que l'application installée sur les téléphones (APK ou site) joigne le m
 2. **Tunnel** : installez [Tailscale](https://tailscale.com), connectez le PC, puis `tailscale funnel --bg 8787`.
    La première fois, Tailscale donne un lien pour autoriser Funnel. L'adresse obtenue (`https://nom-du-pc.xxxx.ts.net`)
    est fixe et en HTTPS.
-3. **Démarrage** : double-cliquez sur `demarrer-serveur.bat` (Ollama, tunnel, serveur). Le PC doit rester allumé
-   pendant que les facteurs scannent.
+3. **Démarrage** : double-cliquez sur `demarrer-serveur.bat` (Ollama, tunnel, serveur). Pour qu'il se lance à chaque
+   ouverture de Windows, placez un raccourci vers ce fichier (fenêtre « Réduite ») dans le dossier Démarrage
+   (`Win+R` puis `shell:startup`). Le script ne lance pas un second serveur s'il tourne déjà, et le relance s'il s'arrête.
+   Le PC doit rester allumé pendant que les facteurs scannent.
 4. **Sur chaque téléphone** : bouton Réglages (roue dentée) → adresse du serveur et code d'accès → « Enregistrer et vérifier ».
 
 Le code n'est écrit ni dans le site ni dans l'APK, qui sont publics : il n'existe que dans `server/.env` et dans les
