@@ -78,7 +78,7 @@ export function createTracker() {
 
 /**
  * Contrôleur caméra.
- * opts: { video, onStatus(txt), onSharp(value), onState({ state, progress }), onCapture(canvas) → Promise }
+ * opts: { video, onStatus(txt), onSharp(value), onState({ state, progress }), onCapture(canvas, signal) → Promise }
  */
 export function createScanner({ video, onStatus, onSharp, onCapture, onState = () => {} }) {
   const gc = document.createElement('canvas');
@@ -86,43 +86,74 @@ export function createScanner({ video, onStatus, onSharp, onCapture, onState = (
   const gx = gc.getContext('2d', { willReadFrequently: true });
   const tracker = createTracker();
   let stream = null, timer = null, prev = null, ref = null, busy = false, wake = null, torch = false, reading = null;
-  let session = 0;   // change à chaque ouverture / fermeture de la caméra : une lecture d'avant ne touche plus à l'affichage
+  let session = 0;          // change à chaque ouverture / fermeture : une lecture d'avant ne touche plus à l'affichage
+  let backCams = [], lensIdx = 0, mainId = '';
+  const SIZE = { width: { ideal: 1920 }, height: { ideal: 1080 } };
+
+  /* ----- Ouverture d'une caméra : on ferme TOUJOURS la précédente avant (un téléphone n'en ouvre qu'une à la fois),
+         et on vérifie qu'elle envoie vraiment des images (sinon : erreur, au lieu d'attendre indéfiniment). ----- */
+  const release = () => { stream?.getTracks().forEach(t => t.stop()); stream = null; video.srcObject = null; };
+  const timeout = (ms, msg) => new Promise((_, ko) => setTimeout(() => ko(new Error(msg)), ms));
+  /** Attend une vraie image de la caméra (pas seulement un flux ouvert). */
+  function firstFrame(ms = 4000) {
+    return Promise.race([
+      new Promise(ok => {
+        const done = () => ok();
+        if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(done);
+        else video.addEventListener('timeupdate', done, { once: true });
+      }),
+      timeout(ms, 'La caméra n\'envoie pas d\'image'),
+    ]);
+  }
+  async function open(constraints) {
+    release();
+    const s = await Promise.race([navigator.mediaDevices.getUserMedia({ video: constraints, audio: false }), timeout(60000, 'Caméra indisponible')]);
+    stream = s;
+    video.srcObject = s;
+    try {
+      await Promise.race([video.play(), timeout(4000, 'La caméra ne démarre pas')]);
+      await firstFrame();
+    } catch (e) { release(); throw e; }
+  }
+  const bad = new Set((() => { try { return JSON.parse(localStorage.getItem('badLenses') || '[]'); } catch { return []; } })());
+  const markBad = id => { bad.add(id); try { localStorage.setItem('badLenses', JSON.stringify([...bad])); } catch { /* */ } };
 
   async function start() {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('Caméra non disponible (HTTPS requis).');
-    const size = { width: { ideal: 1920 }, height: { ideal: 1080 } };
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, ...size }, audio: false });
-    // Objectif principal (1x) plutôt que le téléobjectif, puis zoom 1x et mise au point continue si possible.
+    // Toujours l'objectif principal (1x) au démarrage, jamais un objectif choisi avant (il peut ne pas marcher).
+    try { await open(mainId ? { deviceId: { exact: mainId }, ...SIZE } : { facingMode: { ideal: 'environment' }, ...SIZE }); }
+    catch { await open({ facingMode: { ideal: 'environment' }, ...SIZE }); }
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       backCams = devices.filter(d => d.kind === 'videoinput' && /back|rear|arri[eè]re|environment/i.test(d.label || ''));
       const main = pickMainBack(devices);
-      lensIdx = Math.max(0, backCams.findIndex(d => d.deviceId === main?.deviceId));
-      if (main && main.deviceId !== stream.getVideoTracks()[0].getSettings().deviceId) {
-        stream.getTracks().forEach(t => t.stop());
-        stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: main.deviceId }, ...size }, audio: false });
+      if (main && !mainId && main.deviceId !== track()?.getSettings().deviceId) {
+        try { await open({ deviceId: { exact: main.deviceId }, ...SIZE }); }
+        catch { await open({ facingMode: { ideal: 'environment' }, ...SIZE }); }
       }
-      const tr = stream.getVideoTracks()[0], caps = tr.getCapabilities?.() ?? {}, adv = {};
-      if (caps.zoom) adv.zoom = Math.max(caps.zoom.min, Math.min(1, caps.zoom.max));
-      if (caps.focusMode?.includes('continuous')) adv.focusMode = 'continuous';
-      if (Object.keys(adv).length) await tr.applyConstraints({ advanced: [adv] }).catch(() => {});
-    } catch { /* on garde la caméra ouverte par défaut */ }
-    video.srcObject = stream;
-    await video.play();
+      mainId = track()?.getSettings().deviceId || main?.deviceId || '';
+      lensIdx = Math.max(0, backCams.findIndex(d => d.deviceId === mainId));
+      await tune();
+    } catch { /* on garde la caméra ouverte */ }
     session++; busy = false;
-    prev = ref = null; tracker.reset();
+    prev = ref = null; tracker.reset(); lastTime = -1; staleSince = 0; lastFrameAt = Date.now();
     onStatus("Touchez l'image pour lire"); onState({ state: 'search', progress: 0 });
-    timer = setInterval(tick, 150);
-    // L'écran reste allumé pendant le tri (si le navigateur le permet).
-    navigator.wakeLock?.request('screen').then(w => { wake = w; }).catch(() => {});
+    clearInterval(timer); timer = setInterval(tick, 150);
+    navigator.wakeLock?.request('screen').then(w => { wake = w; }).catch(() => {});   // l'écran reste allumé
+  }
+  /** Zoom 1x et mise au point continue, si la caméra le permet. */
+  async function tune() {
+    const tr = track(), caps = tr?.getCapabilities?.() ?? {}, adv = {};
+    if (caps.zoom) adv.zoom = Math.max(caps.zoom.min, Math.min(1, caps.zoom.max));
+    if (caps.focusMode?.includes('continuous')) adv.focusMode = 'continuous';
+    if (Object.keys(adv).length) await tr.applyConstraints({ advanced: [adv] }).catch(() => {});
   }
 
   function stop() {
     reading?.abort();
     session++;
     clearInterval(timer); timer = null;
-    stream?.getTracks().forEach(t => t.stop());
-    stream = null; video.srcObject = null; prev = ref = null; torch = false;
+    release(); prev = ref = null; torch = false; busy = false;
     wake?.release().catch(() => {}); wake = null;
     onStatus('Démarrer la caméra'); onState({ state: 'idle', progress: 0 });
   }
@@ -135,8 +166,33 @@ export function createScanner({ video, onStatus, onSharp, onCapture, onState = (
     return torch;
   }
 
+  /* ----- Surveillance : image figée (vidéo en pause, flux muet) → on relance, puis on rouvre la caméra ----- */
+  // On compte les vraies images affichées : l'horloge de la vidéo, elle, avance même quand plus rien n'arrive.
+  let lastTime = -1, staleSince = 0, reopening = false, lastFrameAt = Date.now();
+  if (video.requestVideoFrameCallback) {
+    const onFrame = () => { lastFrameAt = Date.now(); video.requestVideoFrameCallback(onFrame); };
+    video.requestVideoFrameCallback(onFrame);
+  }
+  async function watchdog() {
+    if (busy || !stream || reopening) return;
+    if (video.paused) { video.play().catch(() => {}); lastFrameAt = Date.now(); return; }
+    if (video.requestVideoFrameCallback) {
+      if (Date.now() - lastFrameAt < 2500) return;
+    } else {
+      const t = video.currentTime;
+      if (t !== lastTime) { lastTime = t; staleSince = 0; return; }
+      staleSince ||= Date.now();
+      if (Date.now() - staleSince < 2500) return;
+    }
+    reopening = true; staleSince = 0;                         // plus aucune image depuis 2,5 s : on rouvre la caméra
+    try { await open({ deviceId: { exact: track()?.getSettings().deviceId || mainId }, ...SIZE }); }
+    catch { try { await open({ facingMode: { ideal: 'environment' }, ...SIZE }); } catch { /* réessai au prochain tour */ } }
+    finally { reopening = false; lastFrameAt = Date.now(); }
+  }
+
   function tick() {
-    if (busy || !video.videoWidth) return;
+    watchdog();
+    if (busy || !video.videoWidth || video.paused) return;
     gx.drawImage(video, 0, 0, W, H);
     const g = toGray(gx.getImageData(0, 0, W, H).data);
     const sharp = sharpness(g), move = frameDiff(g, prev), fromRef = frameDiff(g, ref);
@@ -147,9 +203,11 @@ export function createScanner({ video, onStatus, onSharp, onCapture, onState = (
     if (action === 'capture') capture();
   }
 
+  const CANCELLED = "Lecture annulée · touchez l'image pour lire";
   /**
    * Capture l'image pleine résolution et la confie à onCapture. Appelée aussi au toucher de l'image : la lecture part
    * tout de suite, sans attendre que l'image soit stable. L'image se fige pendant la lecture (on voit ce qui est lu).
+   * « Arrêter la lecture » rend la main IMMÉDIATEMENT : la lecture en cours continue en arrière-plan et son résultat est ignoré.
    */
   async function capture() {
     if (busy || !video.videoWidth) return;
@@ -162,46 +220,49 @@ export function createScanner({ video, onStatus, onSharp, onCapture, onState = (
     prev = toGray(gx.getImageData(0, 0, W, H).data);   // référence = l'image lue (même si on a touché en bougeant)
     onStatus('Lecture…'); onState({ state: 'reading', progress: 1 });
     const mine = reading = new AbortController(), here = session;
+    const aborted = new Promise((_, ko) => mine.signal.addEventListener('abort', () => ko(Object.assign(new Error('Lecture annulée'), { name: 'Cancelled' }))));
     let cancelledNow = false;
     try {
-      await onCapture(c, mine.signal);
-      if (mine.signal.aborted) throw Object.assign(new Error('Lecture annulée'), { name: 'Cancelled' });
+      await Promise.race([onCapture(c, mine.signal), aborted]);
       if (here === session) { onStatus('Lu ✓ — retirez la lettre'); onState({ state: 'done', progress: 1 }); }
     } catch (e) {
       if (here === session) {
-        if (e.name === 'Cancelled') { cancelledNow = true; onStatus("Lecture annulée · touchez l'image pour lire"); onState({ state: 'cancelled', progress: 0 }); }
+        if (e.name === 'Cancelled') { cancelledNow = true; onStatus(CANCELLED); onState({ state: 'cancelled', progress: 0 }); }
         else { onStatus(e.message || 'Lecture impossible'); onState({ state: 'error', progress: 0 }); }
       }
     } finally {
       if (reading === mine) reading = null;
-      // Caméra fermée ou rouverte entre-temps (application quittée) : cette lecture ne touche plus à rien.
       if (here === session) {
-        ref = prev;            // image de référence : la lettre actuellement sous la caméra
-        // pas de relecture automatique de cette lettre, même après « Arrêter » ;
-        tracker.lock(cancelledNow ? { action: null, status: "Lecture annulée · touchez l'image pour lire", state: 'cancelled', progress: 0 } : null);
-        if (stream) video.play().catch(() => {});   // on la relit en touchant l'image, ou en posant une autre lettre
+        ref = prev;            // la lettre actuellement sous la caméra : pas relue automatiquement, même après « Arrêter »
+        tracker.lock(cancelledNow ? { action: null, status: CANCELLED, state: 'cancelled', progress: 0 } : null);
         busy = false;
+        lastTime = -1; staleSince = 0; lastFrameAt = Date.now();
+        if (stream) video.play().catch(() => {});
       }
     }
   }
 
-  /* ----- Objectif / zoom : 0,6x, 1x, 2x, 3x… si la caméra le permet, sinon les autres caméras arrière ----- */
-  let lensIdx = 0;
+  /* ----- Objectifs : zoom (0,6x, 1x, 2x…) si la caméra principale le permet, sinon les autres caméras arrière ;
+         un objectif qui n'envoie pas d'image est retiré de la liste et on revient au précédent. ----- */
   const zoomSteps = () => {
     const z = track()?.getCapabilities?.().zoom;
     if (!z || !(z.max > z.min)) return [];
     return [...new Set([z.min, 1, 2, 3, 5, 10].filter(v => v >= z.min - 1e-6 && v <= z.max + 1e-6))].sort((a, b) => a - b);
   };
   const fmtZoom = v => (Math.round(v * 10) / 10).toString().replace('.', ',') + 'x';
+  const usable = () => backCams.filter(d => d.deviceId === mainId || !bad.has(d.deviceId));
   /** Libellé de l'objectif en cours, ou '' s'il n'y a pas le choix. */
   function lensLabel() {
     const steps = zoomSteps();
     if (steps.length > 1) return fmtZoom(track().getSettings().zoom ?? 1);
-    return backCams.length > 1 ? 'Obj. ' + (lensIdx + 1) : '';
+    const list = usable();
+    if (list.length < 2) return '';
+    const i = list.findIndex(d => d.deviceId === track()?.getSettings().deviceId);
+    return 'Obj. ' + (Math.max(0, i) + 1) + '/' + list.length;
   }
-  let backCams = [];
   /** Objectif suivant ; retourne le nouveau libellé. */
   async function nextLens() {
+    if (busy || !stream) return lensLabel();
     const steps = zoomSteps();
     if (steps.length > 1) {
       const cur = track().getSettings().zoom ?? 1;
@@ -209,29 +270,32 @@ export function createScanner({ video, onStatus, onSharp, onCapture, onState = (
       await track().applyConstraints({ advanced: [{ zoom: next }] }).catch(() => {});
       return lensLabel();
     }
-    if (backCams.length > 1) {
-      lensIdx = (lensIdx + 1) % backCams.length;
-      const keep = video.srcObject;
-      try {
-        const s = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: backCams[lensIdx].deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
-        keep?.getTracks().forEach(t => t.stop());
-        stream = s; video.srcObject = s; await video.play();
-        prev = ref = null; tracker.reset();
-      } catch { /* objectif indisponible : on garde l'actuel */ }
+    const list = usable();
+    if (list.length < 2) return lensLabel();
+    const curId = track()?.getSettings().deviceId;
+    const next = list[(Math.max(0, list.findIndex(d => d.deviceId === curId)) + 1) % list.length];
+    busy = true;
+    try {
+      await open({ deviceId: { exact: next.deviceId }, ...SIZE });
+      await tune();
+    } catch {
+      markBad(next.deviceId);                                // cet objectif ne marche pas sur ce téléphone : retiré
+      try { await open({ deviceId: { exact: curId || mainId }, ...SIZE }); }
+      catch { await open({ facingMode: { ideal: 'environment' }, ...SIZE }).catch(() => {}); }
+      onStatus('Objectif indisponible sur ce téléphone');
+    } finally {
+      busy = false; prev = ref = null; tracker.reset(); lastTime = -1; staleSince = 0; lastFrameAt = Date.now();
     }
     return lensLabel();
   }
 
-  /** Arrête la lecture en cours (appui involontaire) : la caméra repart aussitôt. */
+  /** « Arrêter la lecture » : la caméra repart aussitôt, sans attendre la fin de la lecture. */
   const cancel = () => { reading?.abort(); };
 
-  /**
-   * Retour dans l'application (elle était en arrière-plan) : Android coupe la caméra et fige la vidéo.
-   * On rouvre la caméra si son flux est terminé, sinon on relance simplement la vidéo.
-   */
+  /** Retour dans l'application : on relance la vidéo, ou on rouvre la caméra si son flux est terminé. */
   async function resume() {
     if (!stream) return;
-    const tr = stream.getVideoTracks()[0];
+    const tr = track();
     if (!tr || tr.readyState === 'ended' || tr.muted) { stop(); await start(); return; }
     if (video.paused && !busy) await video.play().catch(async () => { stop(); await start(); });
   }

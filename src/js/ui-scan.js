@@ -124,7 +124,9 @@ async function readCanvas(canvas, signal) {
   $('#stopread').disabled = false;
   $('#res').innerHTML = msgHtml('Lecture en cours…', 'loading');
   try {
-    const r = await readAddress(canvas, { signal: own.signal });
+    // « Arrêter la lecture » : réponse immédiate ; la lecture en cours finit en arrière-plan et son résultat est ignoré.
+    const stopped = new Promise((_, ko) => own.signal.addEventListener('abort', () => ko(cancelled())));
+    const r = await Promise.race([readAddress(canvas, { signal: own.signal }), stopped]);
     if (own.signal.aborted) throw cancelled();
     feedback(process(r.addr ?? r.text, t.toDataURL('image/jpeg', 0.5), { ...(r.addr ?? {}), via: r.via, warn: r.warn }));
   } catch (e) {
