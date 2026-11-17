@@ -296,34 +296,38 @@ const STREET_TYPE = /^(rue|ruelle|avenue|av|place|allee|chemin|route|quartier|bo
 const streetCore = s => s.replace(STREET_TYPE, '');
 
 /**
- * Recherche de rues dans le tableau : « gueule du loup », « rue de namur », « namur 5600 », avec une faute légère.
+ * Recherche de rues dans le tableau, par n'importe quels mots du nom, dans n'importe quel ordre, même commencés :
+ * « rue de l'hôtel de ville » est trouvée par « hotel », « ville », « hot vil », « rue de »… et avec une faute légère
+ * (« lavaus » → Rue Lavaux). Un code postal peut être ajouté (« namur 5620 »).
  * Retourne [{ cp, street, score, tours: [{ tournee, ranges: [[from, to, parité?], …] }] }], les meilleures d'abord.
  */
-export function searchStreets(q, ranges, limit = 30) {
+export function searchStreets(q, ranges, limit = 40) {
   const cp = String(q ?? '').match(/\b\d{4}\b/)?.[0] ?? '';
   const nq = norm(String(q ?? '').replace(/\b\d{4}\b/, ''));
-  if (nq.length < 3) return [];
-  // Seulement un type de voie (« place », « place de », « allée des ») : toutes les voies de ce type, par ordre alphabétique.
-  const typeOnly = !streetCore(nq + ' ').trim();
-  const cq = streetCore(nq), byStreet = new Map();
+  if (nq.length < 2) return [];
+  const qw = nq.split(' ').filter(Boolean);
+  const byStreet = new Map();
   for (const r of ranges) {
     if (cp && r.cp !== cp) continue;
     const key = r.cp + '|' + r.street;
     let hit = byStreet.get(key);
-    if (!hit) {
-      const ns = norm(r.street), cs = streetCore(ns);
-      if (typeOnly) {
-        if (!(ns + ' ').startsWith(nq + ' ')) { byStreet.set(key, null); continue; }
-        byStreet.set(key, hit = { cp: r.cp, street: r.street, score: 0.8, tours: new Map() });
-        hit.tours.set(r.tournee, [r.parity ? [r.from_n, r.to_n, r.parity] : [r.from_n, r.to_n]]);
-        continue;
+    if (hit === undefined) {
+      const ns = norm(r.street), sw = ns.split(' ').filter(Boolean);
+      let score = 0;
+      if (ns === nq) score = 1;
+      else {
+        // Chaque mot tapé doit être le début d'un mot de la rue (« hot » → hôtel), ou lui ressembler s'il est assez long.
+        let prefix = 0, fuzzy = 0;
+        for (const w of qw) {
+          if (sw.some(x => x.startsWith(w))) prefix++;
+          else if (w.length >= 4 && sw.some(x => simNorm(x, w) >= 0.75 || (x.length >= 4 && simNorm(x.slice(0, w.length), w) >= 0.75))) fuzzy++;
+        }
+        if (prefix === qw.length) score = sw[0].startsWith(qw[0]) ? 0.96 : 0.95;   // « place » : les places d'abord
+        else if (prefix + fuzzy === qw.length) score = 0.85;
+        else score = Math.max(simNorm(ns, nq), simNorm(streetCore(ns), streetCore(nq)) * 0.97) >= 0.8 ? 0.8 : 0;
       }
-      // Nom contenu dans la rue (« namur » dans « rue de namur »), ou ressemblant (faute de frappe), avec ou sans le type.
-      const score = ns === nq || cs === cq ? 1
-        : ns.includes(nq) || (cq.length >= 3 && cs.includes(cq)) ? 0.9
-          : Math.max(simNorm(ns, nq), simNorm(cs, cq) * 0.97);
-      if (score < 0.75) { byStreet.set(key, null); continue; }
-      byStreet.set(key, hit = { cp: r.cp, street: r.street, score, tours: new Map() });
+      hit = score ? { cp: r.cp, street: r.street, score, tours: new Map() } : null;
+      byStreet.set(key, hit);
     }
     if (!hit) continue;
     if (!hit.tours.has(r.tournee)) hit.tours.set(r.tournee, []);

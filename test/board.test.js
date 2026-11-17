@@ -134,8 +134,18 @@ test('searchStreets : « place », « place de » listent les places', async () 
   const { searchStreets } = await import('../src/js/match.js');
   const r = parseTable('5600 002 Place du Marché\n5600 003 Place de la Gare\n5620 007 Rue de la Place\n5600 512 Rue Lavaux');
   const s = q => searchStreets(q, r).map(x => x.street);
-  assert.deepEqual(s('place'), ['Place de la Gare', 'Place du Marché']);      // les places, pas « Rue de la Place »
-  assert.deepEqual(s('place de'), ['Place de la Gare', 'Place du Marché']);
+  assert.deepEqual(s('place'), ['Place de la Gare', 'Place du Marché', 'Rue de la Place']);   // les places d'abord
+  assert.deepEqual(s('place de'), ['Place de la Gare', 'Place du Marché', 'Rue de la Place']);
   assert.deepEqual(s('rue'), ['Rue de la Place', 'Rue Lavaux']);
   assert.equal(s('place de la gare')[0], 'Place de la Gare');
+});
+
+test("searchStreets : n'importe quels mots du nom, dans n'importe quel ordre, même commencés", async () => {
+  const { searchStreets } = await import('../src/js/match.js');
+  const r = parseTable("5600 002 Rue de l'Hôtel de Ville\n5600 512 Rue Lavaux\n5640 526 Rue Albert Ier");
+  const s = q => searchStreets(q, r).map(x => x.street);
+  for (const q of ['hotel', 'ville', 'hot vil', 'vil hot', 'rue de l hotel de ville', 'HÔTEL'])
+    assert.deepEqual(s(q), ["Rue de l'Hôtel de Ville"], q);
+  assert.deepEqual(s('rue de'), ['Rue Albert Ier', "Rue de l'Hôtel de Ville", 'Rue Lavaux']);
+  assert.deepEqual(s('zz'), []);
 });

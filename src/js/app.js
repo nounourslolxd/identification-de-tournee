@@ -36,7 +36,17 @@ initHistory();
 initLearnHandler();
 initAuth(shared);
 
-if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+// Application Android (APK) : les fichiers sont déjà dans l'application, le cache hors ligne est inutile et, après une
+// mise à jour, il continuait d'afficher l'ancienne version. On le retire (une seule fois) puis on recharge.
+const native = !!window.Capacitor?.isNativePlatform?.() || (location.protocol === 'https:' && location.hostname === 'localhost');
+if (native) {
+  navigator.serviceWorker?.getRegistrations().then(async regs => {
+    if (!regs.length) return;
+    for (const r of regs) await r.unregister();
+    for (const k of await caches.keys()) await caches.delete(k);
+    location.reload();
+  }).catch(() => {});
+} else if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(e => console.warn('Service worker :', e));
 }
 

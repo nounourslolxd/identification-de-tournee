@@ -94,7 +94,10 @@ export function createScanner({ video, onStatus, onSharp, onCapture, onState = (
     stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, ...size }, audio: false });
     // Objectif principal (1x) plutôt que le téléobjectif, puis zoom 1x et mise au point continue si possible.
     try {
-      const main = pickMainBack(await navigator.mediaDevices.enumerateDevices());
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      backCams = devices.filter(d => d.kind === 'videoinput' && /back|rear|arri[eè]re|environment/i.test(d.label || ''));
+      const main = pickMainBack(devices);
+      lensIdx = Math.max(0, backCams.findIndex(d => d.deviceId === main?.deviceId));
       if (main && main.deviceId !== stream.getVideoTracks()[0].getSettings().deviceId) {
         stream.getTracks().forEach(t => t.stop());
         stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: main.deviceId }, ...size }, audio: false });
@@ -121,7 +124,7 @@ export function createScanner({ video, onStatus, onSharp, onCapture, onState = (
     stream?.getTracks().forEach(t => t.stop());
     stream = null; video.srcObject = null; prev = ref = null; torch = false;
     wake?.release().catch(() => {}); wake = null;
-    onStatus('Caméra éteinte'); onState({ state: 'idle', progress: 0 });
+    onStatus('Démarrer la caméra'); onState({ state: 'idle', progress: 0 });
   }
 
   /** La lampe du téléphone est-elle pilotable ? (Chrome Android ; pas Safari.) */
@@ -182,6 +185,43 @@ export function createScanner({ video, onStatus, onSharp, onCapture, onState = (
     }
   }
 
+  /* ----- Objectif / zoom : 0,6x, 1x, 2x, 3x… si la caméra le permet, sinon les autres caméras arrière ----- */
+  let lensIdx = 0;
+  const zoomSteps = () => {
+    const z = track()?.getCapabilities?.().zoom;
+    if (!z || !(z.max > z.min)) return [];
+    return [...new Set([z.min, 1, 2, 3, 5, 10].filter(v => v >= z.min - 1e-6 && v <= z.max + 1e-6))].sort((a, b) => a - b);
+  };
+  const fmtZoom = v => (Math.round(v * 10) / 10).toString().replace('.', ',') + 'x';
+  /** Libellé de l'objectif en cours, ou '' s'il n'y a pas le choix. */
+  function lensLabel() {
+    const steps = zoomSteps();
+    if (steps.length > 1) return fmtZoom(track().getSettings().zoom ?? 1);
+    return backCams.length > 1 ? 'Obj. ' + (lensIdx + 1) : '';
+  }
+  let backCams = [];
+  /** Objectif suivant ; retourne le nouveau libellé. */
+  async function nextLens() {
+    const steps = zoomSteps();
+    if (steps.length > 1) {
+      const cur = track().getSettings().zoom ?? 1;
+      const next = steps.find(v => v > cur + 0.05) ?? steps[0];
+      await track().applyConstraints({ advanced: [{ zoom: next }] }).catch(() => {});
+      return lensLabel();
+    }
+    if (backCams.length > 1) {
+      lensIdx = (lensIdx + 1) % backCams.length;
+      const keep = video.srcObject;
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: backCams[lensIdx].deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+        keep?.getTracks().forEach(t => t.stop());
+        stream = s; video.srcObject = s; await video.play();
+        prev = ref = null; tracker.reset();
+      } catch { /* objectif indisponible : on garde l'actuel */ }
+    }
+    return lensLabel();
+  }
+
   /** Arrête la lecture en cours (appui involontaire) : la caméra repart aussitôt. */
   const cancel = () => { reading?.abort(); };
 
@@ -196,5 +236,5 @@ export function createScanner({ video, onStatus, onSharp, onCapture, onState = (
     if (video.paused && !busy) await video.play().catch(async () => { stop(); await start(); });
   }
 
-  return { start, stop, capture, cancel, resume, setTorch, torchAvailable, get torch() { return torch; }, get active() { return !!stream; } };
+  return { start, stop, capture, cancel, resume, nextLens, lensLabel, setTorch, torchAvailable, get torch() { return torch; }, get active() { return !!stream; } };
 }

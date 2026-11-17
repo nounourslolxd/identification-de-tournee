@@ -24,13 +24,13 @@
   <symbol id="i-img" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M20 16l-5-5-7 8"/></symbol>
   <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0"/></symbol>
   <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></symbol>
 </svg>
 
 <header class="top">
   <h1>Tournées</h1>
   <span id="mode" class="pill"></span>
-  <button id="gear" class="icon-btn" aria-label="Réglages"><svg><use href="#i-gear"/></svg></button>
   <button id="acct" class="icon-btn" hidden aria-label="Compte"><svg><use href="#i-user"/></svg></button>
 </header>
 <div id="banner" class="banner" hidden></div>
@@ -42,15 +42,17 @@
     <div class="cam-idle"><svg><use href="#i-cam"/></svg></div>
     <div class="frame" aria-hidden="true"><i></i><i></i><i></i><i></i><b class="scanline"></b></div>
     <div class="hud">
-      <span class="status" role="status"><i class="dot"></i><span id="st">Caméra éteinte</span><span class="steps" aria-hidden="true"><i></i><i></i><i></i></span></span>
+      <button class="status" id="go" type="button" aria-label="Démarrer ou arrêter la caméra"><i class="dot"></i><span id="st">Démarrer la caméra</span><span class="steps" aria-hidden="true"><i></i><i></i><i></i></span><svg class="go-ic"><use href="#i-power"/></svg></button>
       <span class="meter" id="meter" title="Netteté" aria-hidden="true"><i id="shb"></i></span>
-      <button class="hud-btn" id="torch" hidden aria-label="Lampe" aria-pressed="false"><svg><use href="#i-bolt"/></svg></button>
+      <div class="hud-col">
+        <button class="hud-btn" id="torch" hidden aria-label="Lampe" aria-pressed="false"><svg><use href="#i-bolt"/></svg></button>
+        <button class="hud-btn lens" id="lens" hidden aria-label="Changer d'objectif">1x</button>
+      </div>
     </div>
-    <button class="stopread" id="stopread" type="button">Arrêter la lecture</button>
     <div class="ov" id="ov" aria-live="polite"></div>
   </div>
   <div class="actions">
-    <button class="btn primary" id="go">Démarrer la caméra</button>
+    <button class="btn primary stop-big" id="stopread" type="button" disabled>Arrêter la lecture</button>
     <button class="btn" id="snap" aria-label="Capture manuelle" title="Capture manuelle"><svg><use href="#i-cam"/></svg></button>
     <button class="btn" id="pick" aria-label="Lire une photo" title="Lire une photo"><svg><use href="#i-img"/></svg></button>
     <input type="file" id="pf" accept="image/*" hidden>
@@ -107,6 +109,25 @@
   <div id="hl" class="list"></div>
   <button class="btn ghost danger" id="hclr">Vider l'historique</button>
 </section>
+<section id="rg">
+  <h2>Réglages</h2>
+  <h3>Serveur de lecture</h3>
+  <p class="hint">Il lit le manuscrit et les photos du tableau. Sans lui, seul l'imprimé est lu, sur le téléphone.</p>
+  <label class="field">Adresse du serveur
+    <input id="seturl" type="url" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="https://mon-pc.exemple.ts.net">
+  </label>
+  <label class="field">Code d'accès
+    <input id="setcode" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX">
+  </label>
+  <div id="setmsg" class="hint" role="status"></div>
+  <button class="btn primary wide" id="setsave" type="button">Enregistrer et vérifier</button>
+  <div class="about">
+    <h3>À propos</h3>
+    <p><b>Tournées</b> · application créée par <b>Mickaël Damsin</b>.</p>
+    <p class="hint" id="appver"></p>
+    <p class="hint">Adresses : BeST Address (BOSA, CC-BY 4.0), codes postaux bpost, OpenStreetMap. Lecture : Tesseract et un modèle de vision open source.</p>
+  </div>
+</section>
 </main>
 
 <nav id="tabs" class="tabbar">
@@ -114,6 +135,7 @@
   <button data-t="lo"><svg><use href="#i-pin"/></svg><span>Localités</span></button>
   <button data-t="tb"><svg><use href="#i-table"/></svg><span>Tableau</span></button>
   <button data-t="hi"><svg><use href="#i-clock"/></svg><span>Historique</span></button>
+  <button data-t="rg"><svg><use href="#i-gear"/></svg><span>Réglages</span></button>
 </nav>
 
 <dialog id="auth">
@@ -131,26 +153,6 @@
   </form>
 </dialog>
 
-<dialog id="settings">
-  <form method="dialog">
-    <h2>Serveur de lecture</h2>
-    <p class="hint">Il lit le manuscrit et les photos du tableau. Sans lui, seul l'imprimé est lu, sur le téléphone.</p>
-    <label class="field">Adresse du serveur
-      <input id="seturl" type="url" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="https://mon-pc.exemple.ts.net">
-    </label>
-    <label class="field">Code d'accès
-      <input id="setcode" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX">
-    </label>
-    <div id="setmsg" class="hint" role="status"></div>
-    <button class="btn primary wide" id="setsave" type="button">Enregistrer et vérifier</button>
-    <button class="btn ghost wide" id="setclose" type="button">Fermer</button>
-    <div class="about">
-      <h3>À propos</h3>
-      <p><b>Tournées</b> · application créée par <b>Mickaël Damsin</b>.</p>
-      <p class="hint">Adresses : BeST Address (BOSA, CC-BY 4.0), codes postaux bpost, OpenStreetMap. Lecture : Tesseract et un modèle de vision open source.</p>
-    </div>
-  </form>
-</dialog>
 
 <script type="module" src="js/app.js"></script>
 </body>

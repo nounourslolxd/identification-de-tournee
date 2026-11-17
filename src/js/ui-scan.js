@@ -121,7 +121,8 @@ async function readCanvas(canvas, signal) {
   t.getContext('2d').drawImage(canvas, 0, 0, t.width, t.height);
   const before = $('#st').textContent;
   $('#st').textContent = 'Lecture…';
-  $('#res').innerHTML = `<div class="msg loading row-between"><span>Lecture en cours…</span><button class="btn sm" data-stopread type="button">Arrêter</button></div>`;
+  $('#stopread').disabled = false;
+  $('#res').innerHTML = msgHtml('Lecture en cours…', 'loading');
   try {
     const r = await readAddress(canvas, { signal: own.signal });
     if (own.signal.aborted) throw cancelled();
@@ -129,11 +130,11 @@ async function readCanvas(canvas, signal) {
   } catch (e) {
     $('#res').innerHTML = e.name === 'Cancelled' ? msgHtml('Lecture annulée.', '') : msgHtml(e.message, 'ko');
     if (e.name === 'Cancelled' && signal) throw e;     // le scanner sait alors qu'il ne doit pas verrouiller cette lettre
-  } finally { if (current === own) current = null; }
+  } finally { if (current === own) current = null; if (!current && cam().dataset.state !== 'reading') $('#stopread').disabled = true; }
   if ($('#st').textContent === 'Lecture…') $('#st').textContent = before;
 }
 
-/** Bouton « Arrêter la lecture » (sur l'image et sous la caméra). */
+/** Bouton « Arrêter la lecture » (sous la caméra). */
 function stopReading(scanner) {
   if (current) current.abort();
   scanner.cancel();
@@ -148,6 +149,7 @@ export function initScan() {
     onSharp: s => { $('#shb').style.width = Math.min(100, s / SHARP * 60) + '%'; $('#meter').classList.toggle('ok', s >= SHARP); },
     onState: ({ state, progress }) => {
       box.dataset.state = state;
+      $('#stopread').disabled = state !== 'reading' && !current;
       steps.forEach((el, i) => el.classList.toggle('on', progress >= (i + 1) / steps.length - 1e-9));
       // Nouvelle lettre : on efface le résultat précédent pour ne pas le confondre avec le suivant.
       if (state === 'new' || state === 'search' || state === 'idle' || state === 'cancelled') { $('#ov').classList.remove('on'); delete box.dataset.result; }
@@ -157,12 +159,13 @@ export function initScan() {
   // Toucher n'importe où sur l'image (cadre, bandeau, résultat affiché) = lire tout de suite, sans attendre la stabilité.
   // Pendant une lecture, toucher l'image ne relance rien : le bouton « Arrêter » l'annule.
   box.addEventListener('pointerdown', e => {
-    if (!scanner.active || e.target.closest('#torch, #stopread')) return;
+    if (e.target.closest('#torch, #lens, #go')) return;
+    if (!scanner.active) { e.preventDefault(); startCam(); return; }     // caméra éteinte : toucher l'image la démarre
     e.preventDefault();
     if (box.dataset.state !== 'reading') scanner.capture();
   });
-  $('#stopread').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); stopReading(scanner); });
-  $('#res').addEventListener('click', e => { if (e.target.closest('[data-stopread]')) stopReading(scanner); });
+  $('#stopread').addEventListener('click', () => stopReading(scanner));
+  $('#lens').onclick = async () => { $('#lens').textContent = await scanner.nextLens(); };
 
   // Quitter l'application puis y revenir : la caméra est coupée en arrière-plan (batterie, vie privée)
   // et rouverte au retour, au lieu de rester figée.
@@ -174,8 +177,8 @@ export function initScan() {
     }
     if (!wasOn) return;
     wasOn = false;
-    try { await scanner.start(); box.classList.add('live'); $('#torch').hidden = !scanner.torchAvailable(); }
-    catch { box.classList.remove('live'); $('#go').textContent = 'Démarrer la caméra'; $('#st').textContent = 'Caméra indisponible : touchez « Démarrer la caméra »'; }
+    try { await scanner.start(); box.classList.add('live'); camButtons(); }
+    catch { box.classList.remove('live'); $('#st').textContent = 'Caméra indisponible : touchez ici'; }
   });
   window.addEventListener('pageshow', () => { if (scanner.active) scanner.resume(); });
   v.onloadedmetadata = () => { if (v.videoWidth) box.style.setProperty('--cam-ar', v.videoWidth + '/' + v.videoHeight); };
@@ -191,18 +194,22 @@ export function initScan() {
       await readCanvas(c);
     } catch (err) { $('#res').innerHTML = msgHtml('Image illisible : ' + err.message, 'ko'); }
   };
-  $('#go').onclick = async () => {
-    if (scanner.active) {
-      scanner.stop(); box.classList.remove('live'); $('#go').textContent = 'Démarrer la caméra';
-      $('#torch').hidden = true; $('#torch').setAttribute('aria-pressed', 'false');
-      return;
-    }
-    try {
-      await scanner.start(); box.classList.add('live'); $('#go').textContent = 'Arrêter';
-      $('#torch').hidden = !scanner.torchAvailable();
-      maybePrefetch();
-    }
+  function camButtons() {
+    $('#torch').hidden = !scanner.torchAvailable();
+    const lens = scanner.lensLabel();
+    $('#lens').hidden = !lens; $('#lens').textContent = lens || '1x';
+  }
+  async function startCam() {
+    try { await scanner.start(); box.classList.add('live'); camButtons(); maybePrefetch(); }
     catch (e) { $('#st').textContent = e.message?.includes('HTTPS') ? e.message : 'Caméra refusée ou indisponible'; }
+  }
+  // Petit bouton en haut à gauche de l'image : démarre ou arrête la caméra.
+  $('#go').onclick = async () => {
+    if (!scanner.active) return startCam();
+    stopReading(scanner);
+    scanner.stop(); box.classList.remove('live');
+    $('#st').textContent = 'Démarrer la caméra';
+    $('#torch').hidden = $('#lens').hidden = true; $('#torch').setAttribute('aria-pressed', 'false');
   };
   $('#snap').onclick = () => { if (scanner.active) scanner.capture(); else $('#st').textContent = 'Démarrez d\'abord la caméra'; };
   $('#mb').onclick = () => process($('#man').value);

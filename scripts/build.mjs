@@ -34,6 +34,13 @@ if (env.OCR_SERVER_URL && !/^https:\/\/|^http:\/\/localhost\b/.test(env.OCR_SERV
 }
 if (!url || !key) console.warn('⚠ SUPABASE_URL / SUPABASE_ANON_KEY absents : l\'application fonctionnera en mode local.');
 
+// Numéro de version affiché dans Réglages (construction GitHub : APP_VERSION_NAME).
+const ver = env.APP_VERSION_NAME || '';
+if (ver) {
+  const p = join(dist, 'index.html');
+  writeFileSync(p, readFileSync(p, 'utf8').replace('<meta charset="utf-8">', `<meta charset="utf-8">\n<meta name="app-version" content="${ver}">`));
+}
+
 // Service worker : liste de la coquille + version = empreinte du contenu.
 const files = [];
 (function walk(d) {

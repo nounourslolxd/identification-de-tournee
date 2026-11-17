@@ -4,20 +4,19 @@ import { $ } from './util.js';
 import { readerSettings, saveReaderSettings, testReaderServer, hasReaderServer } from './reader.js';
 import { syncBoardFromServer } from './ui-table.js';
 
+/** Pastille sur l'onglet Réglages : verte si le serveur de lecture est réglé. */
 function showState() {
-  const b = $('#gear');
-  b.dataset.s = hasReaderServer() ? 'ok' : '';
-  b.title = hasReaderServer() ? 'Serveur de lecture réglé' : 'Serveur de lecture non réglé';
+  const b = document.querySelector('[data-t=rg]');
+  if (b) b.dataset.s = hasReaderServer() ? 'ok' : '';
 }
 
 export function initSettings() {
-  const dlg = $('#settings'), msg = $('#setmsg');
-  $('#gear').onclick = () => {
-    const s = readerSettings();
-    $('#seturl').value = s.url; $('#setcode').value = s.code; msg.textContent = ''; msg.className = 'hint';
-    dlg.showModal();
-  };
-  $('#setclose').onclick = () => dlg.close();
+  const msg = $('#setmsg');
+  const fill = () => { const s = readerSettings(); $('#seturl').value = s.url; $('#setcode').value = s.code; };
+  fill();
+  document.querySelector('[data-t=rg]').addEventListener('click', () => { fill(); msg.textContent = ''; msg.className = 'hint'; });
+  const v = document.querySelector('meta[name=app-version]')?.content;
+  $('#appver').textContent = v ? 'Version ' + v : '';
   $('#setsave').onclick = async () => {
     const url = $('#seturl').value.trim(), code = $('#setcode').value.trim();
     if (url && !/^https:\/\/|^http:\/\/(localhost|127\.0\.0\.1)\b/.test(url)) {
