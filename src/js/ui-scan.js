@@ -1,7 +1,7 @@
 import { $, esc } from './util.js';
 import { state, setHist, effectiveRanges } from './store.js';
 import { parseAddr, match, isFound, confidence, cls, clsGlobal, checkCity, localityIndex } from './match.js';
-import { createScanner, SHARP } from './scanner.js';
+import { createScanner, SHARP, log } from './scanner.js';
 import { warmup } from './ocr.js';
 import { readAddress, cancelled } from './reader.js';
 import { fullIndex } from './postcodes.js';
@@ -167,7 +167,11 @@ export function initScan() {
     if (box.dataset.state !== 'reading') scanner.capture();
   });
   $('#stopread').addEventListener('click', () => stopReading(scanner));
-  $('#lens').onclick = async () => { $('#lens').textContent = await scanner.nextLens(); };
+  $('#lens').onclick = async () => {
+    if ($('#lens').disabled) return;
+    $('#lens').disabled = true; $('#lens').textContent = '…';
+    try { $('#lens').textContent = await scanner.nextLens(); } finally { $('#lens').disabled = false; }
+  };
 
   // Quitter l'application puis y revenir : la caméra est coupée en arrière-plan (batterie, vie privée)
   // et rouverte au retour, au lieu de rester figée.
@@ -203,7 +207,7 @@ export function initScan() {
   }
   async function startCam() {
     try { await scanner.start(); box.classList.add('live'); camButtons(); maybePrefetch(); }
-    catch (e) { $('#st').textContent = e.message?.includes('HTTPS') ? e.message : 'Caméra refusée ou indisponible'; }
+    catch (e) { $('#st').textContent = e.message || 'Caméra refusée ou indisponible'; log('démarrage impossible : ' + (e.message || e)); }
   }
   // Petit bouton en haut à gauche de l'image : démarre ou arrête la caméra.
   $('#go').onclick = async () => {

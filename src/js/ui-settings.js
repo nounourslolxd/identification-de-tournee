@@ -3,6 +3,7 @@
 import { $ } from './util.js';
 import { readerSettings, saveReaderSettings, testReaderServer, hasReaderServer } from './reader.js';
 import { syncBoardFromServer } from './ui-table.js';
+import { cameraLog } from './scanner.js';
 
 /** Pastille sur l'onglet Réglages : verte si le serveur de lecture est réglé. */
 function showState() {
@@ -15,6 +16,14 @@ export function initSettings() {
   const fill = () => { const s = readerSettings(); $('#seturl').value = s.url; $('#setcode').value = s.code; };
   fill();
   document.querySelector('[data-t=rg]').addEventListener('click', () => { fill(); msg.textContent = ''; msg.className = 'hint'; });
+  // Diagnostic caméra : journal des derniers événements, et remise à zéro des objectifs écartés.
+  const showLog = () => {
+    let bad = []; try { bad = JSON.parse(localStorage.getItem('badLenses') || '[]'); } catch { /* */ }
+    $('#camlog').textContent = [...cameraLog(), bad.length ? `objectifs écartés : ${bad.length}` : 'aucun objectif écarté'].join('\n') || '(rien pour l\'instant)';
+  };
+  $('#camdiag').addEventListener('toggle', showLog);
+  document.querySelector('[data-t=rg]').addEventListener('click', showLog);
+  $('#lensreset').onclick = () => { try { localStorage.removeItem('badLenses'); } catch { /* */ } showLog(); };
   const v = document.querySelector('meta[name=app-version]')?.content;
   $('#appver').textContent = v ? 'Version ' + v : '';
   $('#setsave').onclick = async () => {

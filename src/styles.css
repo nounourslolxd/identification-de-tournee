@@ -221,6 +221,7 @@ details[open]>summary::before{transform:rotate(90deg)}
 dialog{border:0;border-radius:22px;background:var(--surface);color:var(--tx);width:min(92vw,400px);padding:22px}
 dialog::backdrop{background:#0007;backdrop-filter:blur(2px)}
 dialog input{margin-top:6px}
+.camlog{white-space:pre-wrap;font:12px/1.5 ui-monospace,Consolas,monospace;background:var(--sunk);border-radius:10px;padding:10px;max-height:240px;overflow:auto;margin:6px 0 10px}
 .about{margin-top:18px;padding-top:14px;border-top:1px solid var(--line);font-size:14px}
 .about h3{margin:0 0 6px}
 .about p{margin:4px 0}

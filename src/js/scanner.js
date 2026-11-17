@@ -76,6 +76,14 @@ export function createTracker() {
   };
 }
 
+/* ----- Journal de la caméra : les derniers événements, affichés dans Réglages pour comprendre un problème. ----- */
+const camLog = [];
+export function log(msg) {
+  camLog.push(new Date().toLocaleTimeString('fr-BE') + ' ' + msg);
+  if (camLog.length > 40) camLog.shift();
+}
+export const cameraLog = () => [...camLog];
+
 /**
  * Contrôleur caméra.
  * opts: { video, onStatus(txt), onSharp(value), onState({ state, progress }), onCapture(canvas, signal) → Promise }
@@ -90,53 +98,68 @@ export function createScanner({ video, onStatus, onSharp, onCapture, onState = (
   let backCams = [], lensIdx = 0, mainId = '';
   const SIZE = { width: { ideal: 1920 }, height: { ideal: 1080 } };
 
-  /* ----- Ouverture d'une caméra : on ferme TOUJOURS la précédente avant (un téléphone n'en ouvre qu'une à la fois),
-         et on vérifie qu'elle envoie vraiment des images (sinon : erreur, au lieu d'attendre indéfiniment). ----- */
+  /* ----- Ouverture d'une caméra : on ferme TOUJOURS la précédente avant (un téléphone n'en ouvre qu'une à la fois). ----- */
   const release = () => { stream?.getTracks().forEach(t => t.stop()); stream = null; video.srcObject = null; };
   const timeout = (ms, msg) => new Promise((_, ko) => setTimeout(() => ko(new Error(msg)), ms));
-  /** Attend une vraie image de la caméra (pas seulement un flux ouvert). */
-  function firstFrame(ms = 4000) {
-    return Promise.race([
-      new Promise(ok => {
-        const done = () => ok();
-        if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(done);
-        else video.addEventListener('timeupdate', done, { once: true });
-      }),
-      timeout(ms, 'La caméra n\'envoie pas d\'image'),
-    ]);
+  let frames = 0;        // images reçues depuis la dernière ouverture
+  /** Compte les images réellement affichées (relancé à chaque ouverture : un changement de flux peut l'interrompre). */
+  function countFrames() {
+    if (!video.requestVideoFrameCallback) return;
+    const s0 = stream;
+    const onFrame = () => { if (stream !== s0) return; frames++; lastFrameAt = Date.now(); video.requestVideoFrameCallback(onFrame); };
+    video.requestVideoFrameCallback(onFrame);
   }
-  async function open(constraints) {
+  /** Ouvre une caméra. `check` : exige une vraie image dans le délai (changement d'objectif). */
+  async function open(constraints, { check = false } = {}) {
     release();
-    const s = await Promise.race([navigator.mediaDevices.getUserMedia({ video: constraints, audio: false }), timeout(60000, 'Caméra indisponible')]);
-    stream = s;
+    const s = await navigator.mediaDevices.getUserMedia({ video: constraints, audio: false });
+    stream = s; frames = 0; lastFrameAt = Date.now();
     video.srcObject = s;
-    try {
-      await Promise.race([video.play(), timeout(4000, 'La caméra ne démarre pas')]);
-      await firstFrame();
-    } catch (e) { release(); throw e; }
+    countFrames();
+    try { await Promise.race([video.play(), timeout(check ? 3000 : 8000, 'lecture vidéo lente')]); }
+    catch (e) { log('lecture vidéo : ' + e.message); }        // on continue : la surveillance relancera la vidéo
+    if (!check) return;
+    const t0 = Date.now();
+    while (frames === 0 && !(video.videoWidth && !video.requestVideoFrameCallback)) {
+      if (Date.now() - t0 > 3500) { release(); throw new Error('aucune image de cet objectif'); }
+      await new Promise(r => setTimeout(r, 100));
+    }
   }
-  const bad = new Set((() => { try { return JSON.parse(localStorage.getItem('badLenses') || '[]'); } catch { return []; } })());
+  const loadBad = () => { try { return JSON.parse(localStorage.getItem('badLenses') || '[]'); } catch { return []; } };
+  const bad = new Set(loadBad());
   const markBad = id => { bad.add(id); try { localStorage.setItem('badLenses', JSON.stringify([...bad])); } catch { /* */ } };
+  const describe = e => (e?.name && e.name !== 'Error' ? e.name + ' : ' : '') + (e?.message || String(e));
 
   async function start() {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('Caméra non disponible (HTTPS requis).');
-    // Toujours l'objectif principal (1x) au démarrage, jamais un objectif choisi avant (il peut ne pas marcher).
-    try { await open(mainId ? { deviceId: { exact: mainId }, ...SIZE } : { facingMode: { ideal: 'environment' }, ...SIZE }); }
-    catch { await open({ facingMode: { ideal: 'environment' }, ...SIZE }); }
+    const env = { facingMode: { ideal: 'environment' }, ...SIZE };
+    onStatus('Ouverture de la caméra…');
+    bad.clear(); for (const id of loadBad()) bad.add(id);         // liste relue (Réglages peut l'avoir remise à zéro)
+    // 1. La caméra arrière, simplement (ce qui marchait déjà). En cas d'échec : n'importe quelle caméra.
+    try { await open(env); }
+    catch (e) {
+      log('ouverture arrière : ' + describe(e));
+      try { await open(true); }
+      catch (e2) { log('ouverture : ' + describe(e2)); throw new Error('Caméra impossible à ouvrir (' + describe(e2) + ')'); }
+    }
+    log('ouverte : ' + (track()?.label || '?'));
+    // 2. Liste des objectifs ; si une autre caméra arrière est l'objectif principal (1x), on essaie de passer dessus,
+    //    sans jamais perdre la caméra qui marche (retour immédiat si l'objectif principal ne donne pas d'image).
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       backCams = devices.filter(d => d.kind === 'videoinput' && /back|rear|arri[eè]re|environment/i.test(d.label || ''));
-      const main = pickMainBack(devices);
-      if (main && !mainId && main.deviceId !== track()?.getSettings().deviceId) {
-        try { await open({ deviceId: { exact: main.deviceId }, ...SIZE }); }
-        catch { await open({ facingMode: { ideal: 'environment' }, ...SIZE }); }
+      log('caméras arrière : ' + (backCams.map(d => d.label).join(' ; ') || 'aucune nommée'));
+      const main = pickMainBack(devices), cur = track()?.getSettings().deviceId;
+      if (main && main.deviceId !== cur && !bad.has(main.deviceId)) {
+        try { await open({ deviceId: { exact: main.deviceId }, ...SIZE }, { check: true }); log('objectif principal : ' + main.label); }
+        catch (e) { log('objectif principal refusé : ' + describe(e)); markBad(main.deviceId); await open(env); }
       }
-      mainId = track()?.getSettings().deviceId || main?.deviceId || '';
+      mainId = track()?.getSettings().deviceId || '';
       lensIdx = Math.max(0, backCams.findIndex(d => d.deviceId === mainId));
       await tune();
-    } catch { /* on garde la caméra ouverte */ }
+    } catch (e) { log('réglage : ' + describe(e)); if (!stream) await open(env); }
     session++; busy = false;
-    prev = ref = null; tracker.reset(); lastTime = -1; staleSince = 0; lastFrameAt = Date.now();
+    prev = ref = null; tracker.reset(); lastTime = -1; staleSince = 0; lastFrameAt = Date.now(); lastReopen = 0;
     onStatus("Touchez l'image pour lire"); onState({ state: 'search', progress: 0 });
     clearInterval(timer); timer = setInterval(tick, 150);
     navigator.wakeLock?.request('screen').then(w => { wake = w; }).catch(() => {});   // l'écran reste allumé
@@ -166,27 +189,25 @@ export function createScanner({ video, onStatus, onSharp, onCapture, onState = (
     return torch;
   }
 
-  /* ----- Surveillance : image figée (vidéo en pause, flux muet) → on relance, puis on rouvre la caméra ----- */
-  // On compte les vraies images affichées : l'horloge de la vidéo, elle, avance même quand plus rien n'arrive.
-  let lastTime = -1, staleSince = 0, reopening = false, lastFrameAt = Date.now();
-  if (video.requestVideoFrameCallback) {
-    const onFrame = () => { lastFrameAt = Date.now(); video.requestVideoFrameCallback(onFrame); };
-    video.requestVideoFrameCallback(onFrame);
-  }
+  /* ----- Surveillance : image figée → on relance la vidéo ; si les images se sont arrêtées, on rouvre la caméra ----- */
+  let lastTime = -1, staleSince = 0, reopening = false, lastFrameAt = Date.now(), lastReopen = 0;
   async function watchdog() {
     if (busy || !stream || reopening) return;
     if (video.paused) { video.play().catch(() => {}); lastFrameAt = Date.now(); return; }
-    if (video.requestVideoFrameCallback) {
-      if (Date.now() - lastFrameAt < 2500) return;
-    } else {
+    let stale;
+    if (video.requestVideoFrameCallback) stale = frames > 0 && Date.now() - lastFrameAt > 3000;   // des images, puis plus rien
+    else {
       const t = video.currentTime;
       if (t !== lastTime) { lastTime = t; staleSince = 0; return; }
       staleSince ||= Date.now();
-      if (Date.now() - staleSince < 2500) return;
+      stale = Date.now() - staleSince > 3000;
     }
-    reopening = true; staleSince = 0;                         // plus aucune image depuis 2,5 s : on rouvre la caméra
-    try { await open({ deviceId: { exact: track()?.getSettings().deviceId || mainId }, ...SIZE }); }
-    catch { try { await open({ facingMode: { ideal: 'environment' }, ...SIZE }); } catch { /* réessai au prochain tour */ } }
+    if (!stale || Date.now() - lastReopen < 10000) return;
+    reopening = true; staleSince = 0; lastReopen = Date.now();
+    log('image figée : réouverture de la caméra');
+    const id = track()?.getSettings().deviceId;
+    try { await open(id ? { deviceId: { exact: id }, ...SIZE } : { facingMode: { ideal: 'environment' }, ...SIZE }); }
+    catch (e) { log('réouverture : ' + describe(e)); try { await open({ facingMode: { ideal: 'environment' }, ...SIZE }); } catch { /* prochain essai dans 10 s */ } }
     finally { reopening = false; lastFrameAt = Date.now(); }
   }
 
@@ -251,6 +272,8 @@ export function createScanner({ video, onStatus, onSharp, onCapture, onState = (
   };
   const fmtZoom = v => (Math.round(v * 10) / 10).toString().replace('.', ',') + 'x';
   const usable = () => backCams.filter(d => d.deviceId === mainId || !bad.has(d.deviceId));
+  /** Remet tous les objectifs dans la liste (bouton de Réglages). */
+  const resetLenses = () => { bad.clear(); try { localStorage.removeItem('badLenses'); } catch { /* */ } };
   /** Libellé de l'objectif en cours, ou '' s'il n'y a pas le choix. */
   function lensLabel() {
     const steps = zoomSteps();
@@ -276,11 +299,13 @@ export function createScanner({ video, onStatus, onSharp, onCapture, onState = (
     const next = list[(Math.max(0, list.findIndex(d => d.deviceId === curId)) + 1) % list.length];
     busy = true;
     try {
-      await open({ deviceId: { exact: next.deviceId }, ...SIZE });
+      await open({ deviceId: { exact: next.deviceId }, ...SIZE }, { check: true });
       await tune();
-    } catch {
+      log('objectif : ' + next.label);
+    } catch (e) {
+      log('objectif refusé (' + next.label + ') : ' + describe(e));
       markBad(next.deviceId);                                // cet objectif ne marche pas sur ce téléphone : retiré
-      try { await open({ deviceId: { exact: curId || mainId }, ...SIZE }); }
+      try { await open(curId ? { deviceId: { exact: curId }, ...SIZE } : { facingMode: { ideal: 'environment' }, ...SIZE }); }
       catch { await open({ facingMode: { ideal: 'environment' }, ...SIZE }).catch(() => {}); }
       onStatus('Objectif indisponible sur ce téléphone');
     } finally {
@@ -300,5 +325,5 @@ export function createScanner({ video, onStatus, onSharp, onCapture, onState = (
     if (video.paused && !busy) await video.play().catch(async () => { stop(); await start(); });
   }
 
-  return { start, stop, capture, cancel, resume, nextLens, lensLabel, setTorch, torchAvailable, get torch() { return torch; }, get active() { return !!stream; } };
+  return { start, stop, capture, cancel, resume, nextLens, lensLabel, resetLenses, setTorch, torchAvailable, get torch() { return torch; }, get active() { return !!stream; } };
 }
