@@ -119,3 +119,23 @@ test('searchStreets : une rue, par son nom, avec une faute, ou avec son code pos
   assert.deepEqual(namur.tours.map(t => t.tournee), ['512', '513']);       // plusieurs tournées dans la même rue
   assert.deepEqual(namur.tours[0].ranges, [[2, 40, 'even'], [1, 39, 'odd']]);
 });
+
+test('parseBoardText : un nom déjà bien écrit n\'est jamais retourné (« Rue de la Place » reste tel quel)', () => {
+  for (const n of ['Rue de la Place', 'Rue du Faubourg', 'Rue Pont de la Cour', 'Rue du Parc', 'Place du Marché'])
+    assert.equal(parseBoardText(n).street, n);
+  assert.equal(parseBoardText('PLACE RUE DE LA').street, 'Rue de la Place');            // ligne du tableau en capitales
+  // Aller-retour répété (chaque enregistrement relit le tableau) : le nom ne bouge plus.
+  let t = '5600 031 PLACE RUE DE LA 2-12 / 1-11';
+  for (let i = 0; i < 3; i++) t = formatTable(parseTable(t));
+  assert.equal(t, '5600 031 Rue de la Place 2-12 / 1-11');
+});
+
+test('searchStreets : « place », « place de » listent les places', async () => {
+  const { searchStreets } = await import('../src/js/match.js');
+  const r = parseTable('5600 002 Place du Marché\n5600 003 Place de la Gare\n5620 007 Rue de la Place\n5600 512 Rue Lavaux');
+  const s = q => searchStreets(q, r).map(x => x.street);
+  assert.deepEqual(s('place'), ['Place de la Gare', 'Place du Marché']);      // les places, pas « Rue de la Place »
+  assert.deepEqual(s('place de'), ['Place de la Gare', 'Place du Marché']);
+  assert.deepEqual(s('rue'), ['Rue de la Place', 'Rue Lavaux']);
+  assert.equal(s('place de la gare')[0], 'Place de la Gare');
+});

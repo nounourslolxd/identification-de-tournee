@@ -3,7 +3,7 @@ import { state, setHist, effectiveRanges } from './store.js';
 import { parseAddr, match, isFound, confidence, cls, clsGlobal, checkCity, localityIndex } from './match.js';
 import { createScanner, SHARP } from './scanner.js';
 import { warmup } from './ocr.js';
-import { readAddress } from './reader.js';
+import { readAddress, cancelled } from './reader.js';
 import { fullIndex } from './postcodes.js';
 import * as backend from './backend.js';
 
@@ -106,19 +106,37 @@ export function maybePrefetch() {
   warmup().catch(e => { prefetched = false; console.warn('Préchargement OCR', e); });
 }
 
-/** Lit une image (capture caméra ou photo choisie) : serveur de vision si possible, sinon Tesseract. */
-async function readCanvas(canvas) {
+let current = null;   // lecture en cours, annulable par le bouton « Arrêter la lecture »
+
+/**
+ * Lit une image (capture caméra ou photo choisie) : serveur de vision si possible, sinon Tesseract.
+ * `signal` : annulation venant du scanner ; sinon (photo choisie) la lecture a sa propre annulation.
+ */
+async function readCanvas(canvas, signal) {
+  const own = new AbortController();
+  signal?.addEventListener('abort', () => own.abort());
+  current = own;
   const t = document.createElement('canvas');
   t.width = 160; t.height = Math.round(160 * canvas.height / canvas.width);
   t.getContext('2d').drawImage(canvas, 0, 0, t.width, t.height);
   const before = $('#st').textContent;
   $('#st').textContent = 'Lecture…';
-  $('#res').innerHTML = msgHtml('Lecture en cours…', 'loading');
+  $('#res').innerHTML = `<div class="msg loading row-between"><span>Lecture en cours…</span><button class="btn sm" data-stopread type="button">Arrêter</button></div>`;
   try {
-    const r = await readAddress(canvas);
+    const r = await readAddress(canvas, { signal: own.signal });
+    if (own.signal.aborted) throw cancelled();
     feedback(process(r.addr ?? r.text, t.toDataURL('image/jpeg', 0.5), { ...(r.addr ?? {}), via: r.via, warn: r.warn }));
-  } catch (e) { $('#res').innerHTML = msgHtml(e.message, 'ko'); }
+  } catch (e) {
+    $('#res').innerHTML = e.name === 'Cancelled' ? msgHtml('Lecture annulée.', '') : msgHtml(e.message, 'ko');
+    if (e.name === 'Cancelled' && signal) throw e;     // le scanner sait alors qu'il ne doit pas verrouiller cette lettre
+  } finally { if (current === own) current = null; }
   if ($('#st').textContent === 'Lecture…') $('#st').textContent = before;
+}
+
+/** Bouton « Arrêter la lecture » (sur l'image et sous la caméra). */
+function stopReading(scanner) {
+  if (current) current.abort();
+  scanner.cancel();
 }
 
 export function initScan() {
@@ -132,16 +150,34 @@ export function initScan() {
       box.dataset.state = state;
       steps.forEach((el, i) => el.classList.toggle('on', progress >= (i + 1) / steps.length - 1e-9));
       // Nouvelle lettre : on efface le résultat précédent pour ne pas le confondre avec le suivant.
-      if (state === 'new' || state === 'search' || state === 'idle') { $('#ov').classList.remove('on'); delete box.dataset.result; }
+      if (state === 'new' || state === 'search' || state === 'idle' || state === 'cancelled') { $('#ov').classList.remove('on'); delete box.dataset.result; }
     },
     onCapture: readCanvas,
   });
   // Toucher n'importe où sur l'image (cadre, bandeau, résultat affiché) = lire tout de suite, sans attendre la stabilité.
+  // Pendant une lecture, toucher l'image ne relance rien : le bouton « Arrêter » l'annule.
   box.addEventListener('pointerdown', e => {
-    if (!scanner.active || e.target.closest('#torch')) return;
+    if (!scanner.active || e.target.closest('#torch, #stopread')) return;
     e.preventDefault();
-    scanner.capture();
+    if (box.dataset.state !== 'reading') scanner.capture();
   });
+  $('#stopread').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); stopReading(scanner); });
+  $('#res').addEventListener('click', e => { if (e.target.closest('[data-stopread]')) stopReading(scanner); });
+
+  // Quitter l'application puis y revenir : la caméra est coupée en arrière-plan (batterie, vie privée)
+  // et rouverte au retour, au lieu de rester figée.
+  let wasOn = false;
+  document.addEventListener('visibilitychange', async () => {
+    if (document.hidden) {
+      if (scanner.active) { wasOn = true; stopReading(scanner); scanner.stop(); box.classList.remove('live'); }
+      return;
+    }
+    if (!wasOn) return;
+    wasOn = false;
+    try { await scanner.start(); box.classList.add('live'); $('#torch').hidden = !scanner.torchAvailable(); }
+    catch { box.classList.remove('live'); $('#go').textContent = 'Démarrer la caméra'; $('#st').textContent = 'Caméra indisponible : touchez « Démarrer la caméra »'; }
+  });
+  window.addEventListener('pageshow', () => { if (scanner.active) scanner.resume(); });
   v.onloadedmetadata = () => { if (v.videoWidth) box.style.setProperty('--cam-ar', v.videoWidth + '/' + v.videoHeight); };
   $('#torch').onclick = async () => $('#torch').setAttribute('aria-pressed', String(await scanner.setTorch(!scanner.torch)));
   $('#pick').onclick = () => $('#pf').click();

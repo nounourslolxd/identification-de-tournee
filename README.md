@@ -1,5 +1,7 @@
 # Identification de tournée
 
+Application créée par **Mickaël Damsin**.
+
 Un facteur scanne une lettre avec son téléphone ; l'application lit l'adresse (OCR), la compare à la
 base de plages d'adresses par tournée et affiche la tournée avec un score de confiance.
 Tous les facteurs partagent et enrichissent la même base.

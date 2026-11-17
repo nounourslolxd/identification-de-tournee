@@ -93,6 +93,9 @@ export function parseBoardText(text) {
   // « RUE D'EN » : l'article élidé est séparé du mot suivant pour être reconnu (« D' » + « EN »).
   const tok = t.replace(/(^|\s)([DdLl])['’]\s*(?=\S)/g, "$1$2' ").split(' ').filter(Boolean);
   // Dernier mot « type de voie » suivi uniquement d'articles (puis, pour les lignes spéciales, d'un numéro).
+  // Seules les lignes du tableau du bureau (en CAPITALES) ont le type à la fin. Un nom déjà écrit normalement
+  // (« Rue de la Place ») reste tel quel : sinon il deviendrait « Place Rue de La » à chaque relecture.
+  if (/\p{Ll}/u.test(t)) return { street: t, segs, note };
   for (let i = tok.length - 1; i > 0; i--) {
     if (!TYPES.has(key(tok[i]))) continue;
     let j = i + 1;
@@ -299,7 +302,9 @@ const streetCore = s => s.replace(STREET_TYPE, '');
 export function searchStreets(q, ranges, limit = 30) {
   const cp = String(q ?? '').match(/\b\d{4}\b/)?.[0] ?? '';
   const nq = norm(String(q ?? '').replace(/\b\d{4}\b/, ''));
-  if (nq.length < 3 || !streetCore(nq + ' ').trim()) return [];   // « rue » seul : trop vague
+  if (nq.length < 3) return [];
+  // Seulement un type de voie (« place », « place de », « allée des ») : toutes les voies de ce type, par ordre alphabétique.
+  const typeOnly = !streetCore(nq + ' ').trim();
   const cq = streetCore(nq), byStreet = new Map();
   for (const r of ranges) {
     if (cp && r.cp !== cp) continue;
@@ -307,6 +312,12 @@ export function searchStreets(q, ranges, limit = 30) {
     let hit = byStreet.get(key);
     if (!hit) {
       const ns = norm(r.street), cs = streetCore(ns);
+      if (typeOnly) {
+        if (!(ns + ' ').startsWith(nq + ' ')) { byStreet.set(key, null); continue; }
+        byStreet.set(key, hit = { cp: r.cp, street: r.street, score: 0.8, tours: new Map() });
+        hit.tours.set(r.tournee, [r.parity ? [r.from_n, r.to_n, r.parity] : [r.from_n, r.to_n]]);
+        continue;
+      }
       // Nom contenu dans la rue (« namur » dans « rue de namur »), ou ressemblant (faute de frappe), avec ou sans le type.
       const score = ns === nq || cs === cq ? 1
         : ns.includes(nq) || (cq.length >= 3 && cs.includes(cq)) ? 0.9

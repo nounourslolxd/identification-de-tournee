@@ -53,16 +53,17 @@ export function frameDiff(a, b, step = 7) {
  * state : 'blur' | 'move' | 'stable' | 'reading' | 'done' | 'new' (pour l'affichage) ; progress : 0–1 avant la capture.
  */
 export function createTracker() {
-  let stable = 0, locked = false;
+  let stable = 0, locked = false, lockedAs = null;
   return {
     get locked() { return locked; },
     /** À appeler quand une capture a réussi : on attend que la lettre soit retirée/remplacée. */
-    lock() { locked = true; stable = 0; },
+    /** Après une lecture : on attend que la lettre soit retirée. `as` : ce qu'affiche le bandeau en attendant. */
+    lock(as = null) { locked = true; stable = 0; lockedAs = as; },
     reset() { locked = false; stable = 0; },
     step({ sharp, move, fromRef }) {
       if (locked) {
         if (fromRef > REARM) { locked = false; stable = 0; return { action: null, status: 'Nouvelle lettre…', state: 'new', progress: 0 }; }
-        return { action: null, status: 'Lu ✓ — retirez la lettre', state: 'done', progress: 1 };
+        return lockedAs ?? { action: null, status: 'Lu ✓ — retirez la lettre', state: 'done', progress: 1 };
       }
       if (sharp >= SHARP && move < MOVE / 2) {
         stable++;
@@ -84,7 +85,8 @@ export function createScanner({ video, onStatus, onSharp, onCapture, onState = (
   gc.width = W; gc.height = H;
   const gx = gc.getContext('2d', { willReadFrequently: true });
   const tracker = createTracker();
-  let stream = null, timer = null, prev = null, ref = null, busy = false, wake = null, torch = false;
+  let stream = null, timer = null, prev = null, ref = null, busy = false, wake = null, torch = false, reading = null;
+  let session = 0;   // change à chaque ouverture / fermeture de la caméra : une lecture d'avant ne touche plus à l'affichage
 
   async function start() {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('Caméra non disponible (HTTPS requis).');
@@ -104,6 +106,7 @@ export function createScanner({ video, onStatus, onSharp, onCapture, onState = (
     } catch { /* on garde la caméra ouverte par défaut */ }
     video.srcObject = stream;
     await video.play();
+    session++; busy = false;
     prev = ref = null; tracker.reset();
     onStatus("Touchez l'image pour lire"); onState({ state: 'search', progress: 0 });
     timer = setInterval(tick, 150);
@@ -112,6 +115,8 @@ export function createScanner({ video, onStatus, onSharp, onCapture, onState = (
   }
 
   function stop() {
+    reading?.abort();
+    session++;
     clearInterval(timer); timer = null;
     stream?.getTracks().forEach(t => t.stop());
     stream = null; video.srcObject = null; prev = ref = null; torch = false;
@@ -153,18 +158,43 @@ export function createScanner({ video, onStatus, onSharp, onCapture, onState = (
     gx.drawImage(c, 0, 0, W, H);
     prev = toGray(gx.getImageData(0, 0, W, H).data);   // référence = l'image lue (même si on a touché en bougeant)
     onStatus('Lecture…'); onState({ state: 'reading', progress: 1 });
+    const mine = reading = new AbortController(), here = session;
+    let cancelledNow = false;
     try {
-      await onCapture(c);
-      onStatus('Lu ✓ — retirez la lettre'); onState({ state: 'done', progress: 1 });
+      await onCapture(c, mine.signal);
+      if (mine.signal.aborted) throw Object.assign(new Error('Lecture annulée'), { name: 'Cancelled' });
+      if (here === session) { onStatus('Lu ✓ — retirez la lettre'); onState({ state: 'done', progress: 1 }); }
     } catch (e) {
-      onStatus(e.message || 'Lecture impossible'); onState({ state: 'error', progress: 0 });
+      if (here === session) {
+        if (e.name === 'Cancelled') { cancelledNow = true; onStatus("Lecture annulée · touchez l'image pour lire"); onState({ state: 'cancelled', progress: 0 }); }
+        else { onStatus(e.message || 'Lecture impossible'); onState({ state: 'error', progress: 0 }); }
+      }
     } finally {
-      ref = prev;            // image de référence : la lettre actuellement sous la caméra
-      tracker.lock();        // on ne relit pas la même lettre ; réarmement quand elle change
-      if (stream) video.play().catch(() => {});
-      busy = false;
+      if (reading === mine) reading = null;
+      // Caméra fermée ou rouverte entre-temps (application quittée) : cette lecture ne touche plus à rien.
+      if (here === session) {
+        ref = prev;            // image de référence : la lettre actuellement sous la caméra
+        // pas de relecture automatique de cette lettre, même après « Arrêter » ;
+        tracker.lock(cancelledNow ? { action: null, status: "Lecture annulée · touchez l'image pour lire", state: 'cancelled', progress: 0 } : null);
+        if (stream) video.play().catch(() => {});   // on la relit en touchant l'image, ou en posant une autre lettre
+        busy = false;
+      }
     }
   }
 
-  return { start, stop, capture, setTorch, torchAvailable, get torch() { return torch; }, get active() { return !!stream; } };
+  /** Arrête la lecture en cours (appui involontaire) : la caméra repart aussitôt. */
+  const cancel = () => { reading?.abort(); };
+
+  /**
+   * Retour dans l'application (elle était en arrière-plan) : Android coupe la caméra et fige la vidéo.
+   * On rouvre la caméra si son flux est terminé, sinon on relance simplement la vidéo.
+   */
+  async function resume() {
+    if (!stream) return;
+    const tr = stream.getVideoTracks()[0];
+    if (!tr || tr.readyState === 'ended' || tr.muted) { stop(); await start(); return; }
+    if (video.paused && !busy) await video.play().catch(async () => { stop(); await start(); });
+  }
+
+  return { start, stop, capture, cancel, resume, setTorch, torchAvailable, get torch() { return torch; }, get active() { return !!stream; } };
 }

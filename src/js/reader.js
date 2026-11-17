@@ -70,9 +70,14 @@ export function toJpeg(canvas, max = MAX_SIDE, quality = 0.85) {
   return new Promise((ok, ko) => c.toBlob(b => (b ? ok(b) : ko(new Error('Encodage JPEG impossible'))), 'image/jpeg', quality));
 }
 
-async function readOnServer(canvas) {
+/** Erreur « lecture annulée par le facteur » (distincte d'un délai dépassé). */
+export const cancelled = () => Object.assign(new Error('Lecture annulée'), { name: 'Cancelled' });
+
+async function readOnServer(canvas, signal) {
   const auth = await authHeaders();
   const ctrl = new AbortController(), t = setTimeout(() => ctrl.abort(), TIMEOUT);
+  const stop = () => ctrl.abort();
+  signal?.addEventListener('abort', stop);
   try {
     const res = await fetch(serverUrl + '/read', {
       method: 'POST',
@@ -83,7 +88,10 @@ async function readOnServer(canvas) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
     return data;
-  } finally { clearTimeout(t); }
+  } catch (e) {
+    if (signal?.aborted) throw cancelled();
+    throw e;
+  } finally { clearTimeout(t); signal?.removeEventListener('abort', stop); }
 }
 
 /**
@@ -112,14 +120,18 @@ export async function readTablePiece(blob, zone = []) {
  * Retourne { addr, via: 'serveur' } (adresse déjà analysée et corrigée par le serveur)
  * ou { text, via: 'téléphone', warn? } (texte brut Tesseract, à passer à parseAddr).
  */
-export async function readAddress(canvas) {
+export async function readAddress(canvas, { signal } = {}) {
   let warn = '';
   if (serverUrl && navigator.onLine !== false) {
-    try { return { addr: await readOnServer(canvas), via: 'serveur' }; }
+    try { return { addr: await readOnServer(canvas, signal), via: 'serveur' }; }
     catch (e) {
+      if (e.name === 'Cancelled') throw e;
       console.warn('Serveur de lecture', e);
       warn = e.name === 'AbortError' ? 'Serveur de lecture trop lent' : 'Serveur de lecture indisponible (' + e.message + ')';
     }
   }
-  return { text: await ocr(canvas), via: 'téléphone', warn };
+  if (signal?.aborted) throw cancelled();
+  const text = await ocr(canvas);
+  if (signal?.aborted) throw cancelled();        // Tesseract ne s'interrompt pas : son résultat est ignoré
+  return { text, via: 'téléphone', warn };
 }
